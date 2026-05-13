@@ -1020,63 +1020,42 @@
   }
 
   function renderForumThread(main, catId, threadId) {
+    // Clear any previous listeners for realtime updates
+    if (window._threadUnsubscribe) {
+      try { window._threadUnsubscribe(); } catch(e) {}
+      window._threadUnsubscribe = null;
+    }
+
     main.innerHTML = `<div class="loading-screen"><div class="loader"></div><p>Loading thread...</p></div>`;
 
+    // Fetch thread and a snapshot of public profiles (used for avatars/roles)
     Promise.all([
       dbx.forumThreads.doc(threadId).get(),
-      dbx.forumReplies.get(),
-    ]).then(([threadDoc, repliesSnap]) => {
+      dbx.publicProfiles.get().catch(() => ({ empty: true }))
+    ]).then(([threadDoc, profilesSnap]) => {
       if (!threadDoc.exists) { router.navigate(`/forum/${catId}`); return; }
       const t = threadDoc.data();
 
+      // Increment view count (best-effort)
       if (t.views !== undefined) {
         dbx.forumThreads.doc(threadId).update({ views: (t.views || 0) + 1 }).catch(() => {});
       }
 
-      let replies = [];
-      repliesSnap.forEach(doc => {
-        const r = doc.data();
-        if (r.threadId !== threadId) return;
-        replies.push({ id: doc.id, data: r });
-      });
-      replies.sort((a, b) => (a.data.createdAt?.seconds || 0) - (b.data.createdAt?.seconds || 0));
-
-      let repliesHtml = '';
-      replies.forEach(({ id: replyId, data: r }) => {
-        const initial = (r.author || 'A')[0].toUpperCase();
-        repliesHtml += `
-          <div class="reply-item">
-            <div class="reply-header">
-              <div class="reply-author">
-                <div class="avatar">${esc(initial)}</div>
-                <div>
-                  <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
-                  <div class="role">${r.authorId ? 'Member' : 'Guest'}</div>
-                </div>
-              </div>
-              <div class="reply-date">${formatDateFull(r.createdAt)}</div>
-            </div>
-            <div class="reply-content">${renderMarkdown(r.content)}</div>
-            <div class="reply-actions">
-              ${currentUser ? `<button class="reply-action" onclick="window.openReply('${replyId}')"><i class="fas fa-reply"></i> Reply</button>` : ''}
-              ${currentUser ? `<button class="reply-action" onclick="window.quoteReply('${replyId}','${esc(r.author || 'Anonymous')}')"><i class="fas fa-quote-right"></i> Quote</button>` : ''}
-            </div>
-          </div>`;
-      });
-
-      if (!repliesHtml) {
-        repliesHtml = '<div class="no-posts" style="padding:20px;"><i class="fas fa-comment"></i><p>No replies yet. Be the first to respond.</p></div>';
-      }
+      // Build profiles map for quick lookup
+      const profiles = {};
+      if (profilesSnap && !profilesSnap.empty) profilesSnap.forEach(d => profiles[d.id] = d.data());
 
       const initial = (t.author || 'A')[0].toUpperCase();
+
+      // Render main structure with placeholders for original post and live replies
       main.innerHTML = `
         <div style="margin-bottom:24px;">
           <a class="btn btn-sm btn-secondary" href="#/forum/${catId}"><i class="fas fa-arrow-left"></i> Back to Threads</a>
         </div>
         <div class="reply-list">
-          <div class="reply-item original">
+          <div id="originalReply" class="reply-item original">
             <div class="reply-header">
-              <div class="reply-author">
+              <div class="reply-author" id="originalAuthor">
                 <div class="avatar">${esc(initial)}</div>
                 <div>
                   <div class="name">${t.authorId ? `<a href="#/profile/${esc(t.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(t.author || 'Anonymous')}</a>` : esc(t.author || 'Anonymous')}</div>
@@ -1087,7 +1066,10 @@
             </div>
             <div class="reply-content">${renderMarkdown(t.content)}</div>
           </div>
-          ${repliesHtml}
+
+          <div id="repliesContainer">
+            <div class="loading-screen"><div class="loader"></div><p>Loading replies...</p></div>
+          </div>
         </div>
         ${currentUser && !t.isLocked ? `
           <div class="reply-form">
@@ -1101,24 +1083,180 @@
           </div>` : (!t.isLocked ? `<div style="text-align:center;padding:24px;"><a class="btn btn-secondary" href="#/login"><i class="fas fa-sign-in-alt"></i> Login to Reply</a></div>` : `<div style="text-align:center;padding:24px;color:var(--text-muted);"><i class="fas fa-lock"></i> This thread is locked.</div>`)}
       `;
 
-      if (currentUser && !t.isLocked) {
-        $('replyForm').addEventListener('submit', e => {
-          e.preventDefault();
-          const content = $('replyContent').value.trim();
-          if (!content) return;
-          const btn = $('replyBtn');
-          btn.disabled = true;
-          btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
+      // If admin, show admin controls for this thread
+      if (currentUserRole === 'admin') {
+        const adminActions = document.createElement('div');
+        adminActions.style = 'margin-top:12px;display:flex;gap:8px;';
+        adminActions.innerHTML = `
+          <button class="btn btn-sm btn-danger" id="adminDeleteThreadBtn"><i class="fas fa-trash"></i> Delete Thread</button>
+          <button class="btn btn-sm btn-secondary" id="adminToggleLockBtn">${t.isLocked ? '<i class="fas fa-lock-open"></i> Unlock' : '<i class="fas fa-lock"></i> Lock'}</button>
+        `;
+        const orig = $('originalReply');
+        if (orig) orig.querySelector('.reply-header').appendChild(adminActions);
 
-          dbx.forumReplies.add({ threadId, content, author: getDisplayName(), authorId: currentUser.uid || '', createdAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
-            .then(() => dbx.forumThreads.doc(threadId).update({ replies: firebase.firestore.FieldValue.increment(1), lastActivityAt: firebase.firestore.FieldValue.serverTimestamp() }))
-            .then(() => { toast('Reply posted!', 'success'); renderForumThread(main, catId, threadId); })
-            .catch(e => { toast('Failed to post reply: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post Reply'; });
+        $('adminDeleteThreadBtn').addEventListener('click', () => {
+          if (!confirm('Delete this thread permanently? This cannot be undone.')) return;
+          dbx.forumThreads.doc(threadId).delete().then(() => {
+            toast('Thread deleted', 'success'); router.navigate(`/forum/${catId}`);
+          }).catch(e => toast('Failed to delete thread: ' + e.message, 'error'));
         });
+
+        $('adminToggleLockBtn').addEventListener('click', () => {
+          const lock = !t.isLocked;
+          dbx.forumThreads.doc(threadId).update({ isLocked: lock }).then(() => {
+            toast(lock ? 'Thread locked' : 'Thread unlocked', 'success');
+            // update local UI
+            const btn = $('adminToggleLockBtn');
+            if (btn) btn.innerHTML = lock ? '<i class="fas fa-lock-open"></i> Unlock' : '<i class="fas fa-lock"></i> Lock';
+            t.isLocked = lock;
+          }).catch(e => toast('Failed to update thread: ' + e.message, 'error'));
+        });
+      }
+
+      // Setup realtime listeners for replies (chat-like behavior)
+      const repliesQuery = dbx.forumReplies.where('threadId', '==', threadId).orderBy('createdAt');
+      const threadRef = dbx.forumThreads.doc(threadId);
+
+      const repliesUnsub = repliesQuery.onSnapshot(snap => {
+        let repliesHtml = '';
+        if (snap.empty) {
+          repliesHtml = '<div class="no-posts" style="padding:20px;"><i class="fas fa-comment"></i><p>No replies yet. Be the first to respond.</p></div>';
+        } else {
+          snap.forEach(doc => {
+            const r = doc.data();
+            // Build avatar/role from profiles map if available
+            let authorHtml = '';
+            if (r.authorId && profiles[r.authorId]) {
+              const p = profiles[r.authorId];
+              const avatar = p.avatar ? `<div class="avatar"><img src="${esc(p.avatar)}" alt="${esc(p.displayName || r.author || 'User')}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;"/></div>` : `<div class="avatar">${esc((p.displayName||r.author||'A').charAt(0).toUpperCase())}</div>`;
+              const roleLabel = p.role === 'admin' ? 'Administrator' : 'Member';
+              authorHtml = `
+                <div class="reply-author">
+                  ${avatar}
+                  <div>
+                    <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || p.displayName || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
+                    <div class="role">${roleLabel}</div>
+                  </div>
+                </div>`;
+            } else {
+              const initial = (r.author || 'A')[0].toUpperCase();
+              authorHtml = `
+                <div class="reply-author">
+                  <div class="avatar">${esc(initial)}</div>
+                  <div>
+                    <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
+                    <div class="role">${r.authorId ? 'Member' : 'Guest'}</div>
+                  </div>
+                </div>`;
+            }
+
+            repliesHtml += `
+              <div class="reply-item" data-reply-id="${esc(doc.id)}">
+                <div class="reply-header">
+                  ${authorHtml}
+                  <div class="reply-date">${formatDateFull(r.createdAt)}</div>
+                </div>
+                <div class="reply-content">${renderMarkdown(r.content)}</div>
+                <div class="reply-actions">
+                  ${currentUser ? `<button class="reply-action" onclick="window.openReply('${esc(doc.id)}')"><i class="fas fa-reply"></i> Reply</button>` : ''}
+                  ${currentUser ? `<button class="reply-action" onclick="window.quoteReply('${esc(doc.id)}','${esc(r.author || 'Anonymous')}')"><i class="fas fa-quote-right"></i> Quote</button>` : ''}
+                </div>
+              </div>`;
+          });
+        }
+        const container = $('repliesContainer');
+        if (container) container.innerHTML = repliesHtml;
+        highlightCode();
+        // Optionally indicate new replies (toast) when snapshot has docChanges
+        if (!snap.metadata.hasPendingWrites) {
+          const changes = snap.docChanges();
+          changes.forEach(c => {
+            if (c.type === 'added') {
+              // simple real-time indicator: small toast
+              // avoid spamming when initial load
+              if (window._repliesInitialLoaded) {
+                toast('New reply', 'info');
+              }
+            }
+          });
+        }
+        window._repliesInitialLoaded = true;
+      }, err => console.error('repliesListener:', err));
+
+      const threadUnsub = threadRef.onSnapshot(doc => {
+        if (!doc.exists) return;
+        const data = doc.data();
+        // update lock state of reply form
+        const form = $('replyForm');
+        if (form) {
+          if (data.isLocked) {
+            form.remove();
+            const lockedNotice = document.createElement('div');
+            lockedNotice.style = 'text-align:center;padding:24px;color:var(--text-muted);';
+            lockedNotice.innerHTML = '<i class="fas fa-lock"></i> This thread is locked.';
+            const parent = document.querySelector('.reply-list');
+            if (parent) parent.appendChild(lockedNotice);
+          }
+        }
+      }, err => console.error('threadListener:', err));
+
+      // store unsubscribe to allow cleanup when navigating away
+      window._threadUnsubscribe = () => { try { repliesUnsub(); } catch(e) {} try { threadUnsub(); } catch(e) {} };
+
+      // Submit handler: post a reply (no longer re-render entire thread; realtime listener will pick it up)
+      if (currentUser && !t.isLocked) {
+        const replyForm = $('replyForm');
+        if (replyForm) {
+          replyForm.addEventListener('submit', e => {
+            e.preventDefault();
+            const contentEl = $('replyContent');
+            const content = contentEl.value.trim();
+            if (!content) return;
+            const btn = $('replyBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
+
+            dbx.forumReplies.add({ threadId, content, author: getDisplayName(), authorId: currentUser.uid || '', createdAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
+              .then(() => dbx.forumThreads.doc(threadId).update({ replies: firebase.firestore.FieldValue.increment(1), lastActivityAt: firebase.firestore.FieldValue.serverTimestamp() }))
+              .then(() => { toast('Reply posted!', 'success'); contentEl.value = ''; btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post Reply'; })
+              .catch(e => { toast('Failed to post reply: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post Reply'; });
+          });
+        }
       }
 
       highlightCode();
     }).catch(() => router.navigate(`/forum/${catId}`));
+
+    // Helper global functions for reply UI interactions
+    window.openReply = function(replyId) {
+      const el = document.querySelector(`[data-reply-id="${replyId}"]`);
+      let authorName = '';
+      if (el) {
+        const nameEl = el.querySelector('.name');
+        authorName = nameEl ? nameEl.textContent.trim() : '';
+      }
+      const contentEl = $('replyContent');
+      if (contentEl) {
+        const at = authorName ? `@${authorName} ` : '';
+        contentEl.value = at + contentEl.value;
+        contentEl.focus();
+        contentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
+
+    window.quoteReply = function(replyId, author) {
+      const contentEl = $('replyContent');
+      if (!contentEl) return;
+      dbx.forumReplies.doc(replyId).get().then(doc => {
+        if (!doc.exists) return;
+        const r = doc.data();
+        const lines = (r.content || '').split('\n').map(l => `> ${l}`).join('\n');
+        const quote = `> **${esc(author)} said:**\n${lines}\n\n`;
+        contentEl.value = quote + contentEl.value;
+        contentEl.focus();
+        contentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }).catch(() => {});
+    };
   }
 
   window.showNewThreadModal = function(catId) {
