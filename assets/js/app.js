@@ -7,7 +7,6 @@
   let currentUserClaims = {};
   let currentRoute = '';
   let authResolved = false;
-  let adminConfigLoaded = false;
   let allBlogPosts = [];
   let allVideos = [];
   let allForumCategories = [];
@@ -15,7 +14,6 @@
   let allVideoCategories = [];
   const ADMIN_EMAILS = ['zero-warn@admin.com'];
   const adminEmailSet = new Set(ADMIN_EMAILS.map(email => email.trim().toLowerCase()));
-  const ALLOW_LEGACY_AUTHENTICATED_ADMIN = true;
 
   const $ = id => document.getElementById(id);
   const q = sel => document.querySelector(sel);
@@ -201,7 +199,6 @@
     if (currentUserClaims?.admin === true) return 'admin';
     if (profile?.role === 'admin') return 'admin';
     if (isBootstrapAdminEmail(user?.email)) return 'admin';
-    if (ALLOW_LEGACY_AUTHENTICATED_ADMIN && user) return 'admin';
     return 'user';
   }
 
@@ -212,8 +209,6 @@
       emails.map(normalizeEmail).filter(Boolean).forEach(email => adminEmailSet.add(email));
     }).catch(err => {
       console.error('adminConfig:', err);
-    }).finally(() => {
-      adminConfigLoaded = true;
     });
   }
 
@@ -1933,7 +1928,7 @@
           <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:20px;margin-bottom:24px;">
             <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:12px;"><i class="fas fa-user-shield"></i> Account Role</h3>
             <p style="color:var(--text-secondary);margin-bottom:8px;">This account is currently recognized as <strong>${esc(currentUserRole || 'user')}</strong>.</p>
-            <p style="color:var(--text-muted);font-size:0.9rem;">Admin access is granted when your custom claim or stored role says admin, your email is listed in admin config, or the site is running in legacy single-admin fallback mode.</p>
+            <p style="color:var(--text-muted);font-size:0.9rem;">Admin access is granted only when your Firebase custom claim says admin, your stored profile role is <code>admin</code>, or your email is listed in the admin config.</p>
           </div>`}
 
           <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:24px;margin-bottom:24px;">
