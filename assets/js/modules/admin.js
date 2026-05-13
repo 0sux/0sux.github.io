@@ -771,8 +771,8 @@
         </div>
       </div>
 
-      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
-        <div style="flex:1;min-width:320px;">
+      <div style="display:flex;flex-direction:column;gap:32px;">
+        <div style="width:100%;">
           <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:12px;"><i class="fas fa-tags"></i> Forum Categories</h3>
           <div class="admin-table-wrap">
             <table class="admin-table">
@@ -782,7 +782,7 @@
           </div>
         </div>
 
-        <div style="flex:2;min-width:420px;">
+        <div style="width:100%;">
           <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:12px;"><i class="fas fa-list"></i> Recent Threads</h3>
           <div class="admin-table-wrap">
             <table class="admin-table">

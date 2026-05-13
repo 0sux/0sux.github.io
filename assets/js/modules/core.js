@@ -58,6 +58,7 @@
         { pattern: '/blog/*', handler: 'blogPost' },
         { pattern: '/vlog', handler: 'vlog' }, // Renamed from /videos
         { pattern: '/forum', handler: 'forum' },
+        { pattern: '/forum/search', handler: 'forumSearch' },
         { pattern: '/forum/*/*', handler: 'forumThread' },
         { pattern: '/forum/*', handler: 'forumCategory' },
         { pattern: '/profile', handler: 'profile' },
@@ -75,6 +76,12 @@
         if (route.pattern === '/blog/*' && parts[0] === 'blog' && parts[1]) { matched = true; this.render('blogPost', parts[1]); break; }
         if (route.pattern === '/vlog' && hash === '/vlog') { matched = true; this.render('vlog'); break; }
         if (route.pattern === '/forum' && hash === '/forum') { matched = true; this.render('forum'); break; }
+        if (route.pattern === '/forum/search' && hash.startsWith('/forum/search')) {
+          matched = true;
+          const urlParams = new URLSearchParams(hash.split('?')[1] || '');
+          this.render('forumSearch', urlParams.get('q') || '');
+          break;
+        }
         if (route.pattern === '/forum/*/*' && parts[0] === 'forum' && parts[1] && parts[2]) { matched = true; this.render('forumThread', parts[1], parts[2]); break; }
         if (route.pattern === '/forum/*' && parts[0] === 'forum' && parts[1]) { matched = true; this.render('forumCategory', parts[1]); break; }
         if (route.pattern === '/profile' && hash === '/profile') { matched = true; this.render('profile'); break; }
@@ -103,6 +110,7 @@
           case 'blogPost': window.renderBlogPost(main, params[0]); break;
           case 'vlog': window.renderVlog(main); break;
           case 'forum': window.renderForum(main); break;
+          case 'forumSearch': window.renderForumSearch(main, params[0]); break;
           case 'forumCategory': window.renderForumCategory(main, params[0]); break;
           case 'forumThread': window.renderForumThread(main, params[0], params[1]); break;
           case 'profile': window.renderProfile(main); break;

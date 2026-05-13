@@ -8,6 +8,15 @@
         <h1>Security Forum</h1>
         <p>Professional cybersecurity discussions & community</p>
       </div>
+
+      <div class="forum-search-container" style="margin-bottom: 32px; max-width: 600px; margin-left: auto; margin-right: auto;">
+        <div style="position:relative;">
+          <input type="text" id="forumSearchInput" class="form-input" placeholder="Search threads, topics, or authors..." style="padding-left:44px; border-radius:30px;">
+          <i class="fas fa-search" style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:var(--text-muted);"></i>
+          <button id="forumSearchBtn" class="btn btn-sm btn-primary" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); border-radius:24px; padding:6px 16px;">Search</button>
+        </div>
+      </div>
+
       <div class="forum-stats" id="forumStats">
         <div class="stat-card"><div class="stat-value">--</div><div class="stat-label">Categories</div></div>
         <div class="stat-card"><div class="stat-value">--</div><div class="stat-label">Threads</div></div>
@@ -18,8 +27,86 @@
         ${window.renderSkeleton(4)}
       </div>
     `;
+
+    const searchInput = window.$('forumSearchInput');
+    const searchBtn = window.$('forumSearchBtn');
+
+    const doSearch = () => {
+      const q = searchInput.value.trim();
+      if (q) window.router.navigate('/forum/search?q=' + encodeURIComponent(q));
+    };
+
+    if (searchBtn) searchBtn.addEventListener('click', doSearch);
+    if (searchInput) searchInput.addEventListener('keypress', e => { if (e.key === 'Enter') doSearch(); });
+
     window.loadForumStats();
     window.loadForumCategories();
+  }
+
+  window.renderForumSearch = function(main, query = '') {
+    const q = (query || '').trim().toLowerCase();
+    main.innerHTML = `
+      <div style="margin-bottom:24px;">
+        <a class="btn btn-sm btn-secondary" href="#/forum"><i class="fas fa-arrow-left"></i> Back to Forum</a>
+      </div>
+      <div class="page-header" style="padding:20px 0; text-align: left;">
+        <h2 style="font-family:var(--font-mono);font-size:1.5rem;"><i class="fas fa-search"></i> Search Results</h2>
+        <p>Showing threads matching: <span style="color:var(--accent-cyan); font-weight:bold;">"${window.esc(q)}"</span></p>
+      </div>
+      <div class="thread-list" id="searchResults">${window.renderSkeleton(5)}</div>
+    `;
+
+    if (!q) {
+      window.$('searchResults').innerHTML = '<div class="no-posts"><i class="fas fa-search"></i><p>Please enter a search term.</p></div>';
+      return;
+    }
+
+    // Client-side search for simplicity as Firestore doesn't support full-text natively
+    dbx.forumThreads.get().then(snap => {
+      const container = window.$('searchResults');
+      if (!container) return;
+      let results = [];
+      snap.forEach(doc => {
+        const t = doc.data();
+        if (t.title.toLowerCase().includes(q) || (t.author && t.author.toLowerCase().includes(q)) || (t.content && t.content.toLowerCase().includes(q))) {
+          results.push({ id: doc.id, data: t });
+        }
+      });
+
+      results.sort((a, b) => (b.data.lastActivityAt?.seconds || 0) - (a.data.lastActivityAt?.seconds || 0));
+
+      if (!results.length) {
+        container.innerHTML = `<div class="no-posts"><i class="fas fa-search-minus"></i><p>No results found for "${window.esc(q)}".</p></div>`;
+        return;
+      }
+
+      let html = '';
+      results.forEach(({ id, data: t }) => {
+        const cat = window.allForumCategories.find(c => c.id === t.categoryId);
+        const catName = cat ? cat.name : 'General';
+        
+        html += `
+          <div class="thread-item" onclick="window.router.navigate('/forum/${t.categoryId}/${id}')">
+            <div class="thread-icon"><i class="fas fa-comment"></i></div>
+            <div class="thread-info">
+              <h4>${window.esc(t.title)}</h4>
+              <div class="thread-meta">
+                <span><i class="fas fa-folder"></i> ${window.esc(catName)}</span>
+                <span><i class="fas fa-user"></i> ${window.esc(t.author || 'anonymous')}</span>
+                <span><i class="fas fa-clock"></i> ${window.timeAgo(t.createdAt)}</span>
+              </div>
+            </div>
+            <div class="thread-stats">
+              <span><i class="fas fa-reply"></i> ${t.replies || 0}</span>
+            </div>
+          </div>`;
+      });
+      container.innerHTML = html;
+    }).catch(e => {
+      console.error('searchError:', e);
+      const c = window.$('searchResults');
+      if (c) c.innerHTML = '<div class="no-posts"><i class="fas fa-exclamation-triangle"></i><p>Search failed.</p></div>';
+    });
   }
 
   window.loadForumStats = function() {
@@ -86,11 +173,43 @@
             <p>${window.esc(cat.description || '')}</p>
           </div>
           <div class="forum-toolbar">
-            <span style="color:var(--text-muted);font-size:0.9rem;"><i class="fas fa-comment"></i> ${doc.data().threadCount || 0} threads</span>
+            <div style="display:flex; align-items:center; gap:12px; flex:1;">
+              <span style="color:var(--text-muted);font-size:0.9rem; white-space:nowrap;"><i class="fas fa-comment"></i> ${doc.data().threadCount || 0} threads</span>
+              <div style="position:relative; flex:1; max-width:300px;">
+                <input type="text" id="categorySearchInput" class="form-input" placeholder="Filter threads..." style="padding: 6px 12px 6px 32px; font-size: 0.85rem; border-radius: 20px;">
+                <i class="fas fa-filter" style="position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:0.8rem; color:var(--text-muted);"></i>
+              </div>
+            </div>
             ${window.currentUser ? `<button class="btn btn-sm btn-primary" onclick="window.showNewThreadModal('${catId}')"><i class="fas fa-plus"></i> New Thread</button>` : `<a class="btn btn-sm btn-secondary" href="#/login"><i class="fas fa-sign-in-alt"></i> Login to Post</a>`}
           </div>
           <div class="thread-list" id="threadList">${window.renderSkeleton(5)}</div>
         `;
+
+        const filterInput = window.$('categorySearchInput');
+        if (filterInput) {
+          filterInput.addEventListener('input', () => {
+            const q = filterInput.value.trim().toLowerCase();
+            document.querySelectorAll('#threadList .thread-item').forEach(item => {
+              const text = item.textContent.toLowerCase();
+              item.style.display = text.includes(q) ? 'flex' : 'none';
+            });
+            
+            const visibleCount = document.querySelectorAll('#threadList .thread-item[style="display: flex"]').length || document.querySelectorAll('#threadList .thread-item:not([style*="display: none"])').length;
+            const noResults = window.$('noResultsMsg');
+            if (visibleCount === 0) {
+              if (!noResults) {
+                const msg = document.createElement('div');
+                msg.id = 'noResultsMsg';
+                msg.className = 'no-posts';
+                msg.innerHTML = '<i class="fas fa-search-minus"></i><p>No matching threads found.</p>';
+                window.$('threadList').appendChild(msg);
+              }
+            } else if (noResults) {
+              noResults.remove();
+            }
+          });
+        }
+
         window.loadThreads(catId);
       })
       .catch(() => window.router.navigate('/forum'));
@@ -171,14 +290,16 @@
         <div class="reply-list">
           <div id="originalReply" class="reply-item original">
             <div class="reply-header">
-              <div class="reply-author" id="originalAuthor">
-                <div class="avatar">${window.esc(initial)}</div>
-                <div>
-                  <div class="name">${t.authorId ? `<a href="#/profile/${window.esc(t.authorId)}" style="color:var(--text-primary);text-decoration:none;">${window.esc(t.author || 'Anonymous')}</a>` : window.esc(t.author || 'Anonymous')}</div>
-                  <div class="role" style="color:var(--accent-purple);">Thread Starter</div>
+              <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+                <div class="reply-author" id="originalAuthor">
+                  <div class="avatar">${window.esc(initial)}</div>
+                  <div>
+                    <div class="name">${t.authorId ? `<a href="#/profile/${window.esc(t.authorId)}" style="color:var(--text-primary);text-decoration:none;">${window.esc(t.author || 'Anonymous')}</a>` : window.esc(t.author || 'Anonymous')}</div>
+                    <div class="role" style="color:var(--accent-purple);">Thread Starter</div>
+                  </div>
                 </div>
+                <div class="reply-date" style="opacity:0.7;font-size:0.75rem;">${window.formatDateFull(t.createdAt)}</div>
               </div>
-              <div class="reply-date">${window.formatDateFull(t.createdAt)}</div>
             </div>
             <div class="reply-content">${window.renderMarkdown(t.content)}</div>
           </div>
@@ -201,13 +322,16 @@
 
       if (window.currentUserRole === 'admin') {
         const adminActions = document.createElement('div');
-        adminActions.style = 'margin-top:12px;display:flex;gap:8px;';
+        adminActions.style = 'display:flex;gap:8px;align-items:center;';
         adminActions.innerHTML = `
-          <button class="btn btn-sm btn-danger" id="adminDeleteThreadBtn"><i class="fas fa-trash"></i> Delete Thread</button>
-          <button class="btn btn-sm btn-secondary" id="adminToggleLockBtn">${t.isLocked ? '<i class="fas fa-lock-open"></i> Unlock' : '<i class="fas fa-lock"></i> Lock'}</button>
+          <button class="btn btn-sm btn-danger" id="adminDeleteThreadBtn" style="padding:6px 12px;"><i class="fas fa-trash"></i> Delete</button>
+          <button class="btn btn-sm btn-secondary" id="adminToggleLockBtn" style="padding:6px 12px;">${t.isLocked ? '<i class="fas fa-lock-open"></i> Unlock' : '<i class="fas fa-lock"></i> Lock'}</button>
         `;
         const orig = window.$('originalReply');
-        if (orig) orig.querySelector('.reply-header').appendChild(adminActions);
+        if (orig) {
+          const header = orig.querySelector('.reply-header');
+          header.appendChild(adminActions);
+        }
 
         window.$('adminDeleteThreadBtn').addEventListener('click', () => {
           if (!confirm('Delete this thread permanently? This cannot be undone.')) return;
@@ -269,8 +393,10 @@
               repliesHtml += `
                 <div class="reply-item" data-reply-id="${window.esc(doc.id)}">
                   <div class="reply-header">
-                    ${authorHtml}
-                    <div class="reply-date">${window.formatDateFull(r.createdAt)}</div>
+                    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+                      ${authorHtml}
+                      <div class="reply-date" style="opacity:0.7;font-size:0.75rem;">${window.formatDateFull(r.createdAt)}</div>
+                    </div>
                   </div>
                   <div class="reply-content">${window.renderMarkdown(r.content)}</div>
                   <div class="reply-actions">
@@ -340,8 +466,10 @@
                 repliesHtml += `
                   <div class="reply-item" data-reply-id="${window.esc(docId)}">
                     <div class="reply-header">
-                      ${authorHtml}
-                      <div class="reply-date">${window.formatDateFull(r.createdAt)}</div>
+                      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+                        ${authorHtml}
+                        <div class="reply-date" style="opacity:0.7;font-size:0.75rem;">${window.formatDateFull(r.createdAt)}</div>
+                      </div>
                     </div>
                     <div class="reply-content">${window.renderMarkdown(r.content)}</div>
                     <div class="reply-actions">
@@ -409,7 +537,21 @@
                         const r = doc.data();
                         const author = r.author || 'Anonymous';
                         const initial = (r.author || 'A')[0].toUpperCase();
-                        html += `<div class="reply-item" data-reply-id="${window.esc(doc.id)}"><div class="reply-header"><div class="reply-author"><div class="avatar">${window.esc(initial)}</div><div><div class="name">${window.esc(author)}</div><div class="role">${r.authorId ? 'Member' : 'Guest'}</div></div></div><div class="reply-date">${window.formatDateFull(r.createdAt)}</div></div><div class="reply-content">${window.renderMarkdown(r.content)}</div></div>`;
+                        html += `<div class="reply-item" data-reply-id="${window.esc(doc.id)}">
+                          <div class="reply-header">
+                            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+                              <div class="reply-author">
+                                <div class="avatar">${window.esc(initial)}</div>
+                                <div>
+                                  <div class="name">${window.esc(author)}</div>
+                                  <div class="role">${r.authorId ? 'Member' : 'Guest'}</div>
+                                </div>
+                              </div>
+                              <div class="reply-date" style="opacity:0.7;font-size:0.75rem;">${window.formatDateFull(r.createdAt)}</div>
+                            </div>
+                          </div>
+                          <div class="reply-content">${window.renderMarkdown(r.content)}</div>
+                        </div>`;
                       });
                     }
                     if (container) container.innerHTML = html;
