@@ -53,6 +53,7 @@
       const routes = [
         { pattern: '/', handler: 'home' },
         { pattern: '/login', handler: 'login' },
+        { pattern: '/forgot-password', handler: 'forgotPassword' },
         { pattern: '/register', handler: 'register' },
         { pattern: '/blog', handler: 'blog' },
         { pattern: '/blog/*', handler: 'blogPost' },
@@ -105,6 +106,7 @@
       switch(view) {
         case 'home': window.renderHome(main); break;
         case 'login': window.renderLogin(main); break;
+        case 'forgotPassword': window.renderForgotPassword(main); break;
         case 'register': window.renderRegister(main); break;
         case 'blog': window.renderBlog(main); break;
           case 'blogPost': window.renderBlogPost(main, params[0]); break;
@@ -572,12 +574,15 @@
         <div class="auth-error" id="authError"></div>
         <form id="loginForm">
           <div class="form-group">
-            <label for="loginEmail"><i class="fas fa-envelope"></i> Email</label>
-            <input type="email" id="loginEmail" class="form-input" placeholder="you@example.com" required autocomplete="email">
+            <label for="loginEmail"><i class="fas fa-envelope"></i> Email or Username</label>
+            <input type="text" id="loginEmail" class="form-input" placeholder="you@example.com or username" required autocomplete="username">
           </div>
           <div class="form-group">
             <label for="loginPassword"><i class="fas fa-lock"></i> Password</label>
             <input type="password" id="loginPassword" class="form-input" placeholder="Enter password" required autocomplete="current-password">
+          </div>
+          <div style="text-align:right; margin-top:-10px; margin-bottom:20px;">
+            <a href="#/forgot-password" style="font-size:0.85rem; color:var(--text-muted);">Forgot password?</a>
           </div>
           <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;" id="loginBtn">
             <i class="fas fa-shield-halved"></i> Sign In
@@ -591,7 +596,7 @@
 
     window.$('loginForm').addEventListener('submit', e => {
       e.preventDefault();
-      const email = window.$('loginEmail').value.trim();
+      const loginInput = window.$('loginEmail').value.trim();
       const password = window.$('loginPassword').value;
       const btn = window.$('loginBtn');
       const err = window.$('authError');
@@ -599,14 +604,94 @@
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
       err.style.display = 'none';
 
-      auth.signInWithEmailAndPassword(email, password)
-        .then(() => { window.toast('Welcome back!', 'success'); window.router.navigate('/forum'); })
+      // Resolve email if username was provided
+      let resolveEmail = Promise.resolve(loginInput);
+      if (!loginInput.includes('@')) {
+        resolveEmail = db.collection('usernames').doc(loginInput.toLowerCase()).get().then(doc => {
+          if (doc.exists) return doc.data().email;
+          throw new Error('Username not found. Please use your email.');
+        });
+      }
+
+      resolveEmail.then(email => {
+        return auth.signInWithEmailAndPassword(email, password);
+      })
+      .then(cred => {
+          if (!cred.user.emailVerified) {
+            const user = cred.user;
+            auth.signOut();
+            err.style.display = 'block';
+            err.innerHTML = `Please verify your email address. <a href="#" id="resendEmail" style="color:var(--accent-cyan); text-decoration:underline;">Resend verification email?</a>`;
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-shield-halved"></i> Sign In';
+            
+            window.$('resendEmail').addEventListener('click', e => {
+              e.preventDefault();
+              user.sendEmailVerification().then(() => {
+                window.toast('Verification email resent!', 'success');
+              }).catch(err => {
+                window.toast('Failed to resend: ' + err.message, 'error');
+              });
+            });
+            return;
+          }
+          window.toast('Welcome back!', 'success'); 
+          window.router.navigate('/forum'); 
+        })
         .catch(e => {
           err.style.display = 'block';
           err.textContent = e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential'
             ? 'Invalid email or password.' : e.message;
           btn.disabled = false;
           btn.innerHTML = '<i class="fas fa-shield-halved"></i> Sign In';
+        });
+    });
+  }
+
+  window.renderForgotPassword = function(main) {
+    main.innerHTML = `
+      <div class="auth-container">
+        <div class="auth-header">
+          <div class="auth-icon"><i class="fas fa-key"></i></div>
+          <h2>Reset Password</h2>
+          <p>Enter your email to receive a reset link</p>
+        </div>
+        <div class="auth-error" id="resetError"></div>
+        <form id="resetForm">
+          <div class="form-group">
+            <label for="resetEmail"><i class="fas fa-envelope"></i> Email Address</label>
+            <input type="email" id="resetEmail" class="form-input" placeholder="you@example.com" required>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;" id="resetBtn">
+            <i class="fas fa-paper-plane"></i> Send Reset Link
+          </button>
+        </form>
+        <div style="text-align:center;margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color);">
+          <a href="#/login" style="color:var(--accent-cyan); font-size:0.9rem;"><i class="fas fa-arrow-left"></i> Back to Login</a>
+        </div>
+      </div>
+    `;
+
+    window.$('resetForm').addEventListener('submit', e => {
+      e.preventDefault();
+      const email = window.$('resetEmail').value.trim();
+      const btn = window.$('resetBtn');
+      const err = window.$('resetError');
+      err.style.display = 'none';
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+
+      auth.sendPasswordResetEmail(email)
+        .then(() => {
+          window.toast('Password reset email sent!', 'success');
+          window.router.navigate('/login');
+        })
+        .catch(e => {
+          err.style.display = 'block';
+          err.textContent = e.message;
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Reset Link';
         });
     });
   }
@@ -670,6 +755,7 @@
 
       auth.createUserWithEmailAndPassword(email, password)
         .then(cred => {
+          const user = cred.user;
           const profile = {
             displayName: name,
             email: email,
@@ -677,17 +763,26 @@
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           };
 
-          return db.collection('profiles').doc(cred.user.uid).set(profile).then(() => {
-            return window.syncPublicProfileSafely(cred.user.uid, profile);
-          }).catch(fsErr => {
-            console.error('profileWriteFailed:', fsErr);
-            window.toast('Warning: profile sync failed (Firestore). Some features may be limited until you reload or disable blockers.', 'warning');
-            return Promise.resolve();
+          // 1. Always try to send verification first so we don't lose it
+          const sendEmail = user.sendEmailVerification().catch(e => {
+            console.error('Verification email failed:', e);
+            throw new Error('Failed to send verification email. Please check your Firebase settings.');
           });
+
+          // 2. Set up database records in parallel
+          const setupDb = db.collection('profiles').doc(user.uid).set(profile)
+            .then(() => window.syncPublicProfileSafely(user.uid, profile))
+            .then(() => db.collection('usernames').doc(name.toLowerCase().trim()).set({ email, uid: user.uid }))
+            .catch(e => {
+              console.error('Database setup warning:', e);
+              // We don't throw here so the user can still verify their email
+            });
+
+          return Promise.all([sendEmail, setupDb]).then(() => auth.signOut());
         })
         .then(() => {
-          window.toast('Account created! Welcome!', 'success');
-          window.router.navigate('/forum');
+          window.toast('Account created! A verification link has been sent to your email. Please check your inbox (and spam folder).', 'success');
+          window.router.navigate('/login');
         })
         .catch(e => {
           err.style.display = 'block';
@@ -716,6 +811,13 @@
       window.currentUserClaims = {};
 
       if (user) {
+        if (!user.emailVerified) {
+          auth.signOut();
+          window.authResolved = true;
+          window.updateAuthNav();
+          window.rerenderCurrentRoute();
+          return;
+        }
         user.getIdTokenResult()
         .then(tokenResult => {
           window.currentUserClaims = tokenResult?.claims || {};
