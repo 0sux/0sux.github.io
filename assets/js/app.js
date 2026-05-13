@@ -446,6 +446,9 @@
             email: email,
             role: ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          }).catch(fsErr => {
+            cred.user.delete().catch(() => {});
+            throw new Error('Firestore is blocked by your browser/extension. Disable ad blockers or tracking protection for this site, or use Chrome.');
           });
         })
         .then(() => {
@@ -1692,7 +1695,7 @@
               email: user.email,
               role: role,
               createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
+            }).catch(() => {});
             currentUserRole = role;
           }
           if (loginLink) loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User');
@@ -1701,6 +1704,11 @@
             if (currentUserRole === 'admin') adminLink.style.display = 'flex';
             else adminLink.style.display = 'none';
           }
+        }).catch(e => {
+          if (loginLink) loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User');
+          if (adminLink) adminLink.style.display = 'none';
+          if (registerLink) registerLink.style.display = 'none';
+          showFirestoreBanner();
         });
       } else {
         currentUserRole = null;
@@ -1732,9 +1740,28 @@
     refreshAllCategories();
   }
 
+  function showFirestoreBanner() {
+    const existing = $('fsBanner');
+    if (existing) return;
+    const banner = document.createElement('div');
+    banner.id = 'fsBanner';
+    banner.style.cssText = 'background:var(--accent-red);color:#fff;text-align:center;padding:12px 24px;font-size:0.9rem;position:fixed;top:0;left:0;right:0;z-index:9999;';
+    banner.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Firestore is BLOCKED by your browser. Disable ad blockers / tracking protection for this site, or use Chrome. <button onclick="this.parentElement.remove()" style="background:none;border:1px solid #fff;color:#fff;border-radius:4px;padding:4px 12px;margin-left:12px;cursor:pointer;">Dismiss</button>';
+    document.body.prepend(banner);
+  }
+
+  function checkFirestoreConnection() {
+    dbx.settings.get().then(() => {}).catch(e => {
+      if (e.code === 'unavailable' || e.message?.includes('blocked') || e.code === 'permission-denied') {
+        showFirestoreBanner();
+      }
+    });
+  }
+
   // === INIT ===
   document.addEventListener('DOMContentLoaded', () => {
     $('footerYear').textContent = new Date().getFullYear();
+    checkFirestoreConnection();
 
     const toggle = $('navToggle');
     const menu = $('navMenu');
