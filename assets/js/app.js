@@ -1893,7 +1893,7 @@
             }).catch(() => {});
             currentUserRole = expectedRole;
           }
-          if (loginLink) loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User');
+          if (loginLink) { loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User'); loginLink.href = '#/profile'; }
           if (registerLink) registerLink.style.display = 'none';
           if (profileLink) profileLink.style.display = 'flex';
           if (adminLink) {
@@ -1901,7 +1901,7 @@
             else adminLink.style.display = 'none';
           }
         }).catch(e => {
-          if (loginLink) loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User');
+          if (loginLink) { loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User'); loginLink.href = '#/profile'; }
           if (adminLink) adminLink.style.display = 'none';
           if (registerLink) registerLink.style.display = 'none';
           if (profileLink) profileLink.style.display = 'flex';
@@ -1909,7 +1909,7 @@
         });
       } else {
         currentUserRole = null;
-        if (loginLink) loginLink.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
+        if (loginLink) { loginLink.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login'; loginLink.href = '#/login'; }
         if (registerLink) registerLink.style.display = '';
         if (profileLink) profileLink.style.display = 'none';
         if (adminLink) adminLink.style.display = 'none';
