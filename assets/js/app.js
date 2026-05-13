@@ -337,7 +337,7 @@
   // === LOGIN ===
   function renderLogin(main) {
     if (currentUser) {
-      router.navigate('/forum');
+      router.navigate('/profile');
       return;
     }
     main.innerHTML = `
@@ -392,7 +392,7 @@
   // === REGISTER ===
   function renderRegister(main) {
     if (currentUser) {
-      router.navigate('/forum');
+      router.navigate('/profile');
       return;
     }
     main.innerHTML = `
@@ -1873,7 +1873,7 @@
       const loginLink = $('loginLink');
       const adminLink = $('adminLink');
       const registerLink = $('registerLink');
-      const profileLink = $('profileLink');
+      const logoutLink = $('logoutLink');
 
       if (user) {
         db.collection('profiles').doc(user.uid).get().then(doc => {
@@ -1895,28 +1895,27 @@
           }
           if (loginLink) { loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User'); loginLink.href = '#/profile'; }
           if (registerLink) registerLink.style.display = 'none';
-          if (profileLink) profileLink.style.display = 'flex';
+          if (logoutLink) logoutLink.style.display = 'flex';
           if (adminLink) {
-            if (currentUserRole === 'admin') adminLink.style.display = 'flex';
-            else adminLink.style.display = 'none';
+            adminLink.style.display = currentUserRole === 'admin' ? 'flex' : 'none';
+          }
+          if (currentRoute.startsWith('/admin') && currentUserRole !== 'admin') {
+            router.navigate('/forum');
           }
         }).catch(e => {
+          currentUserRole = 'user';
           if (loginLink) { loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User'); loginLink.href = '#/profile'; }
           if (adminLink) adminLink.style.display = 'none';
           if (registerLink) registerLink.style.display = 'none';
-          if (profileLink) profileLink.style.display = 'flex';
+          if (logoutLink) logoutLink.style.display = 'flex';
           showFirestoreBanner();
         });
       } else {
         currentUserRole = null;
         if (loginLink) { loginLink.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login'; loginLink.href = '#/login'; }
         if (registerLink) registerLink.style.display = '';
-        if (profileLink) profileLink.style.display = 'none';
+        if (logoutLink) logoutLink.style.display = 'none';
         if (adminLink) adminLink.style.display = 'none';
-      }
-      if (currentRoute.startsWith('/admin') && (!user || currentUserRole !== 'admin')) {
-        if (!user) router.navigate('/login');
-        else router.navigate('/forum');
       }
     });
   }
