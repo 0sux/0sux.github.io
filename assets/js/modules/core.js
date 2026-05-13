@@ -619,19 +619,30 @@
       .then(cred => {
           if (!cred.user.emailVerified) {
             const user = cred.user;
-            auth.signOut();
-            err.style.display = 'block';
-            err.innerHTML = `Please verify your email address. <a href="#" id="resendEmail" style="color:var(--accent-cyan); text-decoration:underline;">Resend verification email?</a>`;
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-shield-halved"></i> Sign In';
-            
-            window.$('resendEmail').addEventListener('click', e => {
-              e.preventDefault();
-              user.sendEmailVerification().then(() => {
-                window.toast('Verification email resent!', 'success');
-              }).catch(err => {
-                window.toast('Failed to resend: ' + err.message, 'error');
-              });
+            auth.signOut().then(() => {
+              // Re-check for the error element because signOut might have triggered a state update
+              const errorEl = window.$('authError');
+              const loginBtn = window.$('loginBtn');
+              
+              if (loginBtn) {
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<i class="fas fa-shield-halved"></i> Sign In';
+              }
+              
+              if (errorEl) {
+                errorEl.style.display = 'block';
+                errorEl.innerHTML = `Please verify your email address. <a href="#" id="resendEmail" style="color:var(--accent-cyan); text-decoration:underline;">Resend verification email?</a>`;
+                
+                window.$('resendEmail').addEventListener('click', e => {
+                  e.preventDefault();
+                  user.sendEmailVerification().then(() => {
+                    window.toast('Verification email sent to ' + user.email, 'success');
+                  }).catch(sendErr => {
+                    window.toast('Error sending email: ' + sendErr.message, 'error');
+                  });
+                });
+              }
+              window.toast('Please verify your email address before logging in.', 'warning');
             });
             return;
           }
@@ -815,7 +826,7 @@
           auth.signOut();
           window.authResolved = true;
           window.updateAuthNav();
-          window.rerenderCurrentRoute();
+          // Remove rerender here to prevent clearing the login error message
           return;
         }
         user.getIdTokenResult()
