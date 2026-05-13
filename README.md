@@ -8,6 +8,7 @@ Modern cybersecurity research platform with blog, video gallery, and community f
 - **Videos** — YouTube & Odysee video gallery with auto-embed
 - **Forum** — Professional cybersecurity discussion forum with categories, threads, replies
 - **Admin Panel** — Full CRUD management for all content
+- **Separated Profiles** — Private account records and public profile pages are stored separately
 - **Responsive** — Dark cyber theme, works on all devices
 
 ## Quick Start
@@ -22,17 +23,13 @@ Modern cybersecurity research platform with blog, video gallery, and community f
 
 ### 2. Firestore Security Rules
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
-  }
-}
-```
+Deploy the rules from `firestore.rules` instead of using open write access. The included rules:
+
+- restrict admin-only collections to admins
+- keep `profiles` private to the owner/admin
+- expose only `public_profiles` for public profile pages
+- allow public reads only where the site needs them
+- prevent unpublished blog posts from being readable by regular users
 
 ### 3. Configure
 
@@ -65,6 +62,8 @@ Then enable GitHub Pages in your repo settings (Settings → Pages → Deploy fr
 
 Navigate to `/#/login` and sign in with the admin email/password you created in Firebase.
 
+If you want an account to be admin and it is not the bootstrap admin email, set `profiles/{uid}.role` to `admin` in Firestore.
+
 ## Structure
 
 ```
@@ -76,16 +75,17 @@ Navigate to `/#/login` and sign in with the admin email/password you created in 
 │   ├── js/
 │   │   ├── firebase-config.js  # Firebase configuration
 │   │   └── app.js          # Application (router, views, admin)
+├── firestore.rules         # Recommended Firestore security rules
 ├── content/                # Static content storage
 └── README.md
 ```
 
 ## Security Notes
 
-- Firestore rules restrict writes to authenticated users only
-- Admin panel is guarded by Firebase Authentication
-- All user input is escaped to prevent XSS
-- Markdown is rendered client-side with `marked` (sanitized)
+- Admin access is enforced by user role, not only by hidden links
+- Private profile data is separated from public profile data
+- Markdown is sanitized before insertion into the DOM
+- Firestore security must be deployed from `firestore.rules`; client-side checks alone are not sufficient
 
 ## Tech Stack
 

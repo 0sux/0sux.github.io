@@ -2,8 +2,10 @@
   'use strict';
 
   let currentUser = null;
+  let currentUserProfile = null;
   let currentUserRole = null;
   let currentRoute = '';
+  let authResolved = false;
   let allBlogPosts = [];
   let allVideos = [];
   let allForumCategories = [];
@@ -15,6 +17,7 @@
   const q = sel => document.querySelector(sel);
   const qq = sel => document.querySelectorAll(sel);
   const esc = str => { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; };
+  const PROFILE_LINK_KEYS = ['github', 'twitter', 'youtube', 'website'];
 
   const toast = (msg, type = 'info') => {
     const c = $('toastContainer');
@@ -162,10 +165,170 @@
   function renderMarkdown(content) {
     if (!content) return '';
     try {
-      return marked.parse(content, { breaks: true, gfm: true });
+      return sanitizeHtml(marked.parse(content, { breaks: true, gfm: true }));
     } catch(e) {
       return esc(content);
     }
+  }
+
+  function normalizeEmail(email) {
+    return (email || '').trim().toLowerCase();
+  }
+
+  function getFallbackDisplayName(userOrEmail) {
+    const email = typeof userOrEmail === 'string' ? userOrEmail : userOrEmail?.email;
+    const base = (email || '').split('@')[0].trim();
+    return base || 'User';
+  }
+
+  function getDisplayName(profile = currentUserProfile, user = currentUser) {
+    return (profile?.displayName || '').trim() || getFallbackDisplayName(user);
+  }
+
+  function getUserInitial(profile = currentUserProfile, user = currentUser) {
+    return getDisplayName(profile, user).charAt(0).toUpperCase() || 'U';
+  }
+
+  function isBootstrapAdminEmail(email) {
+    return ADMIN_EMAILS.includes(normalizeEmail(email));
+  }
+
+  function resolveUserRole(profile = currentUserProfile, user = currentUser) {
+    if (profile?.role === 'admin') return 'admin';
+    if (isBootstrapAdminEmail(user?.email)) return 'admin';
+    return 'user';
+  }
+
+  function normalizeProfileLinks(links = {}) {
+    const normalized = {};
+    PROFILE_LINK_KEYS.forEach(key => {
+      const value = (links?.[key] || '').trim();
+      if (value) normalized[key] = value;
+    });
+    return normalized;
+  }
+
+  function buildPublicProfileData(profile = {}) {
+    return {
+      displayName: (profile.displayName || '').trim() || 'User',
+      bio: (profile.bio || '').trim(),
+      avatar: (profile.avatar || '').trim(),
+      links: normalizeProfileLinks(profile.links),
+      role: profile.role === 'admin' ? 'admin' : 'user',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+  }
+
+  function syncPublicProfile(uid, profile) {
+    if (!uid) return Promise.resolve();
+    return dbx.publicProfiles.doc(uid).set(buildPublicProfileData(profile), { merge: true });
+  }
+
+  function sanitizeHtml(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const blockedTags = new Set(['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'option', 'link', 'meta', 'style', 'base']);
+
+    doc.body.querySelectorAll('*').forEach(node => {
+      const tagName = node.tagName.toLowerCase();
+      if (blockedTags.has(tagName)) {
+        node.remove();
+        return;
+      }
+
+      [...node.attributes].forEach(attr => {
+        const name = attr.name.toLowerCase();
+        const value = attr.value.trim();
+        if (name.startsWith('on')) {
+          node.removeAttribute(attr.name);
+          return;
+        }
+        if ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(value)) {
+          node.removeAttribute(attr.name);
+          return;
+        }
+        if (name === 'style') {
+          node.removeAttribute(attr.name);
+        }
+      });
+
+      if (tagName === 'a') {
+        const href = node.getAttribute('href') || '';
+        if (/^\s*javascript:/i.test(href)) {
+          node.removeAttribute('href');
+        } else if (/^https?:\/\//i.test(href)) {
+          node.setAttribute('target', '_blank');
+          node.setAttribute('rel', 'noopener noreferrer');
+        }
+      }
+    });
+
+    return doc.body.innerHTML;
+  }
+
+  function rerenderCurrentRoute() {
+    if (!window.router) return;
+    router.handleRoute();
+  }
+
+  function updateAuthNav() {
+    const loginLink = $('loginLink');
+    const adminLink = $('adminLink');
+    const registerLink = $('registerLink');
+    const logoutLink = $('logoutLink');
+
+    if (currentUser) {
+      if (loginLink) {
+        loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(getDisplayName());
+        loginLink.href = '#/profile';
+      }
+      if (registerLink) registerLink.style.display = 'none';
+      if (logoutLink) logoutLink.style.display = 'flex';
+      if (adminLink) adminLink.style.display = currentUserRole === 'admin' ? 'flex' : 'none';
+      return;
+    }
+
+    if (loginLink) {
+      loginLink.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
+      loginLink.href = '#/login';
+    }
+    if (registerLink) registerLink.style.display = '';
+    if (logoutLink) logoutLink.style.display = 'none';
+    if (adminLink) adminLink.style.display = 'none';
+  }
+
+  function ensureUserProfile(user) {
+    if (!user?.uid) return Promise.resolve(null);
+
+    return db.collection('profiles').doc(user.uid).get().then(doc => {
+      const existing = doc.exists ? doc.data() : {};
+      const resolvedRole = resolveUserRole(existing, user);
+      const profile = {
+        ...existing,
+        displayName: (existing.displayName || '').trim() || getFallbackDisplayName(user),
+        email: user.email || existing.email || '',
+        role: resolvedRole,
+        bio: existing.bio || '',
+        avatar: existing.avatar || '',
+        links: normalizeProfileLinks(existing.links),
+        createdAt: existing.createdAt || firebase.firestore.FieldValue.serverTimestamp()
+      };
+
+      const shouldPersist = !doc.exists
+        || existing.displayName !== profile.displayName
+        || existing.email !== profile.email
+        || existing.role !== profile.role
+        || JSON.stringify(normalizeProfileLinks(existing.links)) !== JSON.stringify(profile.links)
+        || !existing.createdAt;
+
+      const privateWrite = shouldPersist
+        ? db.collection('profiles').doc(user.uid).set(profile, { merge: true })
+        : Promise.resolve();
+
+      return privateWrite
+        .then(() => syncPublicProfile(user.uid, profile))
+        .then(() => profile);
+    });
   }
 
   function highlightCode() {
@@ -268,13 +431,12 @@
   }
 
   function loadHomePosts() {
-    dbx.blog.get().then(snap => {
+    dbx.blog.where('published', '==', true).get().then(snap => {
         const container = $('homePosts');
         if (!container) return;
         let posts = [];
         snap.forEach(doc => {
           const p = doc.data();
-          if (!p.published) return;
           posts.push({ id: doc.id, data: p });
         });
         posts.sort((a, b) => (b.data.createdAt?.seconds || 0) - (a.data.createdAt?.seconds || 0));
@@ -449,12 +611,17 @@
 
       auth.createUserWithEmailAndPassword(email, password)
         .then(cred => {
-          return db.collection('profiles').doc(cred.user.uid).set({
+          const profile = {
             displayName: name,
             email: email,
-            role: ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
+            role: isBootstrapAdminEmail(email) ? 'admin' : 'user',
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
-          }).catch(fsErr => {
+          };
+
+          return Promise.all([
+            db.collection('profiles').doc(cred.user.uid).set(profile),
+            dbx.publicProfiles.doc(cred.user.uid).set(buildPublicProfileData(profile))
+          ]).catch(fsErr => {
             cred.user.delete().catch(() => {});
             throw new Error('Firestore is blocked by your browser/extension. Disable ad blockers or tracking protection for this site, or use Chrome.');
           });
@@ -493,17 +660,28 @@
       <div class="blog-grid" id="blogList">${renderSkeleton(6)}</div>
     `;
 
+    const filterContainer = $('blogFilter');
+    if (filterContainer && !filterContainer.dataset.bound) {
+      filterContainer.dataset.bound = 'true';
+      filterContainer.addEventListener('click', e => {
+        const btn = e.target.closest('.filter-btn');
+        if (!btn) return;
+        filterContainer.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        loadBlogPosts(btn.dataset.cat);
+      });
+    }
+
     loadBlogPosts();
   }
 
   function loadBlogPosts(category = 'all') {
-    dbx.blog.get().then(snap => {
+    dbx.blog.where('published', '==', true).get().then(snap => {
         const container = $('blogList');
         if (!container) return;
         let posts = [];
         snap.forEach(doc => {
           const p = doc.data();
-          if (!p.published) return;
           if (category !== 'all' && p.category !== category) return;
           posts.push({ id: doc.id, data: p });
         });
@@ -533,16 +711,6 @@
         if (container) container.innerHTML = '<div class="no-posts"><i class="fas fa-exclamation-triangle"></i><p>Failed to load posts.</p></div>';
       });
 
-    const filterContainer = $('blogFilter');
-    if (filterContainer) {
-      filterContainer.addEventListener('click', e => {
-        const btn = e.target.closest('.filter-btn');
-        if (!btn) return;
-        qq('.filter-btn', filterContainer).forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        loadBlogPosts(btn.dataset.cat);
-      });
-    }
   }
 
   function renderBlogPost(main, id) {
@@ -555,6 +723,10 @@
           return;
         }
         const p = doc.data();
+        if (!p.published && currentUserRole !== 'admin') {
+          main.innerHTML = `<div class="no-posts"><i class="fas fa-file-excel"></i><p>Post not found.</p></div>`;
+          return;
+        }
         const content = renderMarkdown(p.content);
 
         main.innerHTML = `
@@ -686,14 +858,15 @@
       dbx.forumCategories.get(),
       dbx.forumThreads.get(),
       dbx.forumReplies.get(),
-    ]).then(([cats, threads, replies]) => {
+      dbx.publicProfiles.get().catch(() => ({ size: 0 }))
+    ]).then(([cats, threads, replies, profiles]) => {
       const c = $('forumStats');
       if (!c) return;
       c.innerHTML = `
         <div class="stat-card"><div class="stat-value">${cats.size}</div><div class="stat-label">Categories</div></div>
         <div class="stat-card"><div class="stat-value">${threads.size}</div><div class="stat-label">Threads</div></div>
         <div class="stat-card"><div class="stat-value">${replies.size}</div><div class="stat-label">Replies</div></div>
-        <div class="stat-card"><div class="stat-value">--</div><div class="stat-label">Members</div></div>
+        <div class="stat-card"><div class="stat-value">${profiles.size || 0}</div><div class="stat-label">Members</div></div>
       `;
     }).catch(e => console.error('forumStats:', e));
   }
@@ -831,7 +1004,7 @@
                 <div class="avatar">${esc(initial)}</div>
                 <div>
                   <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
-                  <div class="role">${currentUser?.uid ? 'Member' : 'Guest'}</div>
+                  <div class="role">${r.authorId ? 'Member' : 'Guest'}</div>
                 </div>
               </div>
               <div class="reply-date">${formatDateFull(r.createdAt)}</div>
@@ -890,7 +1063,7 @@
           btn.disabled = true;
           btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
 
-          dbx.forumReplies.add({ threadId, content, author: currentUser.email?.split('@')[0] || 'admin', authorId: currentUser.uid || '', createdAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
+          dbx.forumReplies.add({ threadId, content, author: getDisplayName(), authorId: currentUser.uid || '', createdAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
             .then(() => dbx.forumThreads.doc(threadId).update({ replies: firebase.firestore.FieldValue.increment(1), lastActivityAt: firebase.firestore.FieldValue.serverTimestamp() }))
             .then(() => { toast('Reply posted!', 'success'); renderForumThread(main, catId, threadId); })
             .catch(e => { toast('Failed to post reply: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post Reply'; });
@@ -941,7 +1114,7 @@
 
       dbx.forumThreads.add({
         categoryId: catId, title, content,
-        author: currentUser.email?.split('@')[0] || 'admin',
+        author: getDisplayName(),
         authorId: currentUser.uid || '',
         replies: 0, views: 0, isPinned: false, isLocked: false,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -962,6 +1135,10 @@
 
   // === ADMIN ===
   function renderAdmin(main) {
+    if (!authResolved) {
+      main.innerHTML = '<div class="loading-screen"><div class="loader"></div><p>Loading admin access...</p></div>';
+      return;
+    }
     if (!currentUser) {
       main.innerHTML = `
         <div class="auth-container" style="text-align:center;">
@@ -1047,7 +1224,7 @@
   // === ADMIN DASHBOARD ===
   function adminDashboard() {
     let html = `
-      <div class="admin-header"><h2><i class="fas fa-chart-simple"></i> Dashboard</h2><span style="color:var(--text-muted);font-size:0.9rem;">Welcome, ${esc(currentUser.email?.split('@')[0] || 'admin')}</span></div>
+      <div class="admin-header"><h2><i class="fas fa-chart-simple"></i> Dashboard</h2><span style="color:var(--text-muted);font-size:0.9rem;">Welcome, ${esc(getDisplayName())}</span></div>
       <div class="admin-stats" id="adminStats">
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-feather-alt"></i></div><div class="stat-number">--</div><div class="stat-desc">Blog Posts</div></div>
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-video"></i></div><div class="stat-number">--</div><div class="stat-desc">Videos</div></div>
@@ -1184,7 +1361,7 @@
           </div>
           <div class="form-group">
             <label for="postAuthor">Author</label>
-            <input type="text" class="form-input" id="postAuthor" placeholder="Author name" value="${esc(currentUser?.email?.split('@')[0] || 'admin')}">
+            <input type="text" class="form-input" id="postAuthor" placeholder="Author name" value="${esc(getDisplayName())}">
           </div>
         </div>
         <div class="form-group">
@@ -1283,7 +1460,7 @@
           .catch(e => { toast('Failed: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Update Post'; });
       } else {
         data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
-        data.author = data.author || currentUser?.email?.split('@')[0] || 'admin';
+        data.author = data.author || getDisplayName();
         dbx.blog.add(data)
           .then(() => { toast('Post created!', 'success'); router.navigate('/admin/blog'); })
           .catch(e => { toast('Failed: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Save Post'; });
@@ -1689,13 +1866,14 @@
       const p = profileDoc.exists ? profileDoc.data() : {};
       const threadCount = threadsSnap.size || 0;
       const replyCount = repliesSnap.size || 0;
-      const initial = (p.displayName || p.email || 'U')[0].toUpperCase();
-      const linksHtml = p.links ? `
+      const initial = getUserInitial(p, currentUser);
+      const normalizedLinks = normalizeProfileLinks(p.links);
+      const linksHtml = Object.keys(normalizedLinks).length ? `
         <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
-          ${p.links.github ? `<a href="${esc(p.links.github)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-github"></i></a>` : ''}
-          ${p.links.twitter ? `<a href="${esc(p.links.twitter)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-x-twitter"></i></a>` : ''}
-          ${p.links.website ? `<a href="${esc(p.links.website)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fas fa-globe"></i></a>` : ''}
-          ${p.links.youtube ? `<a href="${esc(p.links.youtube)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-youtube"></i></a>` : ''}
+          ${normalizedLinks.github ? `<a href="${esc(normalizedLinks.github)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-github"></i></a>` : ''}
+          ${normalizedLinks.twitter ? `<a href="${esc(normalizedLinks.twitter)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-x-twitter"></i></a>` : ''}
+          ${normalizedLinks.website ? `<a href="${esc(normalizedLinks.website)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fas fa-globe"></i></a>` : ''}
+          ${normalizedLinks.youtube ? `<a href="${esc(normalizedLinks.youtube)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-youtube"></i></a>` : ''}
         </div>` : '';
 
       main.innerHTML = `
@@ -1704,11 +1882,11 @@
 
           <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:32px;text-align:center;margin-bottom:24px;">
             <div style="width:80px;height:80px;border-radius:50%;background:var(--accent-gradient);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#fff;margin:0 auto 16px;font-family:var(--font-mono);">${esc(initial)}</div>
-            <h2 style="font-family:var(--font-mono);">${esc(p.displayName || 'User')}</h2>
+            <h2 style="font-family:var(--font-mono);">${esc(getDisplayName(p, currentUser))}</h2>
             <p style="color:var(--text-muted);font-size:0.9rem;">${esc(p.email || '')}</p>
             <p style="color:var(--text-secondary);margin-top:8px;">${esc(p.bio || 'No bio yet.')}</p>
             ${p.role === 'admin' ? '<span style="display:inline-block;padding:2px 12px;border-radius:12px;font-size:0.75rem;background:var(--accent-purple);color:#fff;margin-top:8px;">Admin</span>' : ''}
-            ${p.links ? `<div style="margin-top:16px;">${linksHtml}</div>` : ''}
+            ${Object.keys(normalizedLinks).length ? `<div style="margin-top:16px;">${linksHtml}</div>` : ''}
           </div>
 
           <div class="admin-stats" style="margin-bottom:24px;">
@@ -1777,16 +1955,30 @@
         e.preventDefault();
         const btn = $('saveProfileBtn');
         btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-        db.collection('profiles').doc(currentUser.uid).update({
+        const profileUpdate = {
           displayName: $('pName').value.trim(),
           bio: $('pBio').value.trim(),
           avatar: $('pAvatar').value.trim(),
-          links: {
+          links: normalizeProfileLinks({
             github: $('pGithub').value.trim(),
             twitter: $('pTwitter').value.trim(),
             youtube: $('pYoutube').value.trim(),
             website: $('pWebsite').value.trim()
-          }
+          })
+        };
+
+        if (!profileUpdate.displayName) {
+          toast('Display name is required.', 'error');
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+          return;
+        }
+
+        db.collection('profiles').doc(currentUser.uid).set(profileUpdate, { merge: true }).then(() => {
+          currentUserProfile = { ...(currentUserProfile || {}), ...profileUpdate };
+          currentUserRole = resolveUserRole(currentUserProfile, currentUser);
+          updateAuthNav();
+          return syncPublicProfile(currentUser.uid, currentUserProfile);
         }).then(() => {
           toast('Profile updated!', 'success');
           btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
@@ -1801,22 +1993,23 @@
 
   function renderProfilePublic(main, uid) {
     main.innerHTML = '<div class="loading-screen"><div class="loader"></div><p>Loading profile...</p></div>';
-    db.collection('profiles').doc(uid).get().then(doc => {
+    dbx.publicProfiles.doc(uid).get().then(doc => {
       if (!doc.exists) { main.innerHTML = '<div class="no-posts"><i class="fas fa-user"></i><p>User not found.</p></div>'; return; }
       const p = doc.data();
-      const initial = (p.displayName || p.email || 'U')[0].toUpperCase();
+      const initial = getUserInitial(p);
+      const normalizedLinks = normalizeProfileLinks(p.links);
       main.innerHTML = `
         <div style="max-width:700px;margin:0 auto;padding:40px 0;">
           <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:32px;text-align:center;">
             <div style="width:80px;height:80px;border-radius:50%;background:var(--accent-gradient);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#fff;margin:0 auto 16px;font-family:var(--font-mono);">${esc(initial)}</div>
-            <h2 style="font-family:var(--font-mono);">${esc(p.displayName || 'User')}</h2>
+            <h2 style="font-family:var(--font-mono);">${esc(getDisplayName(p))}</h2>
             <p style="color:var(--text-secondary);margin-top:8px;">${esc(p.bio || '')}</p>
             ${p.role === 'admin' ? '<span style="display:inline-block;padding:2px 12px;border-radius:12px;font-size:0.75rem;background:var(--accent-purple);color:#fff;margin-top:8px;">Admin</span>' : ''}
-            ${p.links ? `<div style="margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-              ${p.links.github ? `<a href="${esc(p.links.github)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-github"></i></a>` : ''}
-              ${p.links.twitter ? `<a href="${esc(p.links.twitter)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-x-twitter"></i></a>` : ''}
-              ${p.links.website ? `<a href="${esc(p.links.website)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fas fa-globe"></i></a>` : ''}
-              ${p.links.youtube ? `<a href="${esc(p.links.youtube)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-youtube"></i></a>` : ''}
+            ${Object.keys(normalizedLinks).length ? `<div style="margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+              ${normalizedLinks.github ? `<a href="${esc(normalizedLinks.github)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-github"></i></a>` : ''}
+              ${normalizedLinks.twitter ? `<a href="${esc(normalizedLinks.twitter)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-x-twitter"></i></a>` : ''}
+              ${normalizedLinks.website ? `<a href="${esc(normalizedLinks.website)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fas fa-globe"></i></a>` : ''}
+              ${normalizedLinks.youtube ? `<a href="${esc(normalizedLinks.youtube)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-youtube"></i></a>` : ''}
             </div>` : ''}
           </div>
           <div style="text-align:center;margin-top:16px;">
@@ -1870,52 +2063,33 @@
   function initAuth() {
     auth.onAuthStateChanged(user => {
       currentUser = user;
-      const loginLink = $('loginLink');
-      const adminLink = $('adminLink');
-      const registerLink = $('registerLink');
-      const logoutLink = $('logoutLink');
+      currentUserProfile = null;
 
       if (user) {
-        db.collection('profiles').doc(user.uid).get().then(doc => {
-          const expectedRole = ADMIN_EMAILS.includes(user.email) ? 'admin' : 'user';
-          if (doc.exists) {
-            currentUserRole = doc.data().role || 'user';
-            if (currentUserRole !== expectedRole) {
-              db.collection('profiles').doc(user.uid).update({ role: expectedRole }).catch(() => {});
-              currentUserRole = expectedRole;
-            }
-          } else {
-            db.collection('profiles').doc(user.uid).set({
-              displayName: user.email?.split('@')[0] || 'User',
-              email: user.email,
-              role: expectedRole,
-              createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            }).catch(() => {});
-            currentUserRole = expectedRole;
-          }
-          if (loginLink) { loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User'); loginLink.href = '#/profile'; }
-          if (registerLink) registerLink.style.display = 'none';
-          if (logoutLink) logoutLink.style.display = 'flex';
-          if (adminLink) {
-            adminLink.style.display = currentUserRole === 'admin' ? 'flex' : 'none';
-          }
+        ensureUserProfile(user).then(profile => {
+          currentUserProfile = profile;
+          currentUserRole = resolveUserRole(profile, user);
+          authResolved = true;
+          updateAuthNav();
           if (currentRoute.startsWith('/admin') && currentUserRole !== 'admin') {
             router.navigate('/forum');
+            return;
           }
+          rerenderCurrentRoute();
         }).catch(e => {
           currentUserRole = 'user';
-          if (loginLink) { loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User'); loginLink.href = '#/profile'; }
-          if (adminLink) adminLink.style.display = 'none';
-          if (registerLink) registerLink.style.display = 'none';
-          if (logoutLink) logoutLink.style.display = 'flex';
+          currentUserProfile = { displayName: getFallbackDisplayName(user), email: user.email || '', role: 'user' };
+          authResolved = true;
+          updateAuthNav();
+          rerenderCurrentRoute();
           showFirestoreBanner();
         });
       } else {
         currentUserRole = null;
-        if (loginLink) { loginLink.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login'; loginLink.href = '#/login'; }
-        if (registerLink) registerLink.style.display = '';
-        if (logoutLink) logoutLink.style.display = 'none';
-        if (adminLink) adminLink.style.display = 'none';
+        currentUserProfile = null;
+        authResolved = true;
+        updateAuthNav();
+        rerenderCurrentRoute();
       }
     });
   }

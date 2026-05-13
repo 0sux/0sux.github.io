@@ -20,5 +20,6 @@ const dbx = {
   forumReplies: db.collection('forum_replies'),
   blogCategories: db.collection('blog_categories'),
   videoCategories: db.collection('video_categories'),
+  publicProfiles: db.collection('public_profiles'),
   settings: db.collection('site_settings')
 };
