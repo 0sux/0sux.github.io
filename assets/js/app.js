@@ -1216,26 +1216,44 @@
       content = adminDashboard();
     }
 
-    const pageTitle = {
-      '/dashboard': 'Dashboard', '/blog': 'Blog Posts', '/videos': 'Videos', '/categories': 'Categories', '/forum': 'Forum Management'
-    }[section] || 'Dashboard';
-
     main.innerHTML = `
-      <div class="admin-layout">
-        <aside class="admin-sidebar">
-          <nav>
-            <a href="#/admin/dashboard" class="${section === '/dashboard' || section === '' || section === '/' ? 'active' : ''}"><i class="fas fa-chart-simple"></i> Dashboard</a>
-            <a href="#/admin/blog" class="${section === '/blog' || section.startsWith('/blog/') ? 'active' : ''}"><i class="fas fa-feather-alt"></i> Blog Posts</a>
-            <a href="#/admin/videos" class="${section === '/videos' ? 'active' : ''}"><i class="fas fa-video"></i> Videos</a>
-            <a href="#/admin/categories" class="${section === '/categories' ? 'active' : ''}"><i class="fas fa-tags"></i> Categories</a>
-            <a href="#/admin/forum" class="${section === '/forum' ? 'active' : ''}"><i class="fas fa-comments"></i> Forum</a>
-            <hr style="border-color:var(--border-color);margin:8px 0;">
-            <a href="#/" style="color:var(--text-muted);"><i class="fas fa-arrow-left"></i> Back to Site</a>
-            <a href="#" onclick="logout()" style="color:var(--accent-red);"><i class="fas fa-sign-out-alt"></i> Logout</a>
-          </nav>
-        </aside>
-        <div class="admin-content">
-          ${content}
+      <div class="admin-shell">
+        <div class="admin-shell-header">
+          <div>
+            <p class="admin-shell-kicker">Control Center</p>
+            <h1>0warn Admin</h1>
+            <p>Manage publishing, moderation, and taxonomy from one place.</p>
+          </div>
+          <div class="admin-shell-meta">
+            <span class="admin-badge"><i class="fas fa-user-shield"></i> ${esc(getDisplayName())}</span>
+            <span class="admin-badge admin-badge-muted"><i class="fas fa-lock"></i> Admin session</span>
+          </div>
+        </div>
+        <div class="admin-layout">
+          <aside class="admin-sidebar">
+            <div class="admin-sidebar-card">
+              <div class="admin-sidebar-brand">
+                <div class="admin-sidebar-logo"><i class="fas fa-crown"></i></div>
+                <div>
+                  <strong>Operations</strong>
+                  <span>Publishing and moderation</span>
+                </div>
+              </div>
+              <nav>
+                <a href="#/admin/dashboard" class="${section === '/dashboard' || section === '' || section === '/' ? 'active' : ''}"><i class="fas fa-chart-simple"></i> Dashboard</a>
+                <a href="#/admin/blog" class="${section === '/blog' || section.startsWith('/blog/') ? 'active' : ''}"><i class="fas fa-feather-alt"></i> Blog Posts</a>
+                <a href="#/admin/videos" class="${section === '/videos' ? 'active' : ''}"><i class="fas fa-video"></i> Videos</a>
+                <a href="#/admin/categories" class="${section === '/categories' ? 'active' : ''}"><i class="fas fa-tags"></i> Categories</a>
+                <a href="#/admin/forum" class="${section === '/forum' ? 'active' : ''}"><i class="fas fa-comments"></i> Forum</a>
+                <hr class="admin-sidebar-separator">
+                <a href="#/" class="admin-link-muted"><i class="fas fa-arrow-left"></i> Back to Site</a>
+                <a href="#" onclick="logout()" class="admin-link-danger"><i class="fas fa-sign-out-alt"></i> Logout</a>
+              </nav>
+            </div>
+          </aside>
+          <div class="admin-content">
+            ${content}
+          </div>
         </div>
       </div>
     `;
@@ -1250,7 +1268,15 @@
   // === ADMIN DASHBOARD ===
   function adminDashboard() {
     let html = `
-      <div class="admin-header"><h2><i class="fas fa-chart-simple"></i> Dashboard</h2><span style="color:var(--text-muted);font-size:0.9rem;">Welcome, ${esc(getDisplayName())}</span></div>
+      <div class="admin-panel-card admin-hero-panel">
+        <div class="admin-header">
+          <div>
+            <h2><i class="fas fa-chart-simple"></i> Dashboard</h2>
+            <p class="admin-subtitle">Welcome back, ${esc(getDisplayName())}. Here is the current platform overview.</p>
+          </div>
+          <span class="admin-badge"><i class="fas fa-wave-square"></i> Live snapshot</span>
+        </div>
+      </div>
       <div class="admin-stats" id="adminStats">
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-feather-alt"></i></div><div class="stat-number">--</div><div class="stat-desc">Blog Posts</div></div>
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-video"></i></div><div class="stat-number">--</div><div class="stat-desc">Videos</div></div>
@@ -1259,11 +1285,13 @@
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-comments"></i></div><div class="stat-number">--</div><div class="stat-desc">Forum Threads</div></div>
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-reply"></i></div><div class="stat-number">--</div><div class="stat-desc">Forum Replies</div></div>
       </div>
-      <div class="admin-header" style="margin-top:32px;"><h3 style="font-size:1.1rem;"><i class="fas fa-clock-rotate"></i> Quick Actions</h3></div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="admin-panel-card">
+        <div class="admin-header" style="margin-bottom:18px;"><h3 style="font-size:1.1rem;"><i class="fas fa-bolt"></i> Quick Actions</h3></div>
+        <div class="admin-action-grid">
         <a class="btn btn-primary" href="#/admin/blog/new"><i class="fas fa-plus"></i> New Blog Post</a>
         <a class="btn btn-secondary" href="#/admin/videos"><i class="fas fa-plus"></i> Add Video</a>
         <a class="btn btn-secondary" href="#/admin/categories"><i class="fas fa-plus"></i> Manage Categories</a>
+        </div>
       </div>
     `;
 
@@ -1294,10 +1322,12 @@
         <a class="btn btn-primary btn-sm" href="#/admin/blog/new"><i class="fas fa-plus"></i> New Post</a>
       </div>
       <div id="adminBlogTable">
-        <table class="admin-table">
-          <thead><tr><th>Title</th><th>Category</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
-          <tbody id="adminBlogBody"><tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
-        </table>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead><tr><th>Title</th><th>Category</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+            <tbody id="adminBlogBody"><tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
+          </table>
+        </div>
       </div>
     `;
     setTimeout(() => loadAdminBlog(), 200);
@@ -1505,10 +1535,12 @@
         <h2><i class="fas fa-video"></i> Videos</h2>
         <button class="btn btn-primary btn-sm" onclick="showAddVideoModal()"><i class="fas fa-plus"></i> Add Video</button>
       </div>
-      <table class="admin-table">
-        <thead><tr><th>Title</th><th>Platform</th><th>Category</th><th>Date</th><th>Actions</th></tr></thead>
-        <tbody id="adminVideoBody"><tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
-      </table>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr><th>Title</th><th>Platform</th><th>Category</th><th>Date</th><th>Actions</th></tr></thead>
+          <tbody id="adminVideoBody"><tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
+        </table>
+      </div>
     `;
     setTimeout(loadAdminVideos, 200);
     return html;
@@ -1649,27 +1681,33 @@
         <button class="btn btn-primary btn-sm" onclick="showCategoryModal()"><i class="fas fa-plus"></i> New Blog Category</button>
         <button class="btn btn-primary btn-sm" onclick="showCategoryModal(null,'video')"><i class="fas fa-plus"></i> New Video Category</button>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;">
+      <div class="admin-category-grid">
         <div>
           <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;"><i class="fas fa-feather-alt"></i> Blog</h3>
-          <table class="admin-table">
-            <thead><tr><th>Name</th><th>Posts</th><th>Actions</th></tr></thead>
-            <tbody id="adminBlogCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
-          </table>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Name</th><th>Posts</th><th>Actions</th></tr></thead>
+              <tbody id="adminBlogCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
+            </table>
+          </div>
         </div>
         <div>
           <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;"><i class="fas fa-video"></i> Videos</h3>
-          <table class="admin-table">
-            <thead><tr><th>Name</th><th>Count</th><th>Actions</th></tr></thead>
-            <tbody id="adminVideoCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
-          </table>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Name</th><th>Count</th><th>Actions</th></tr></thead>
+              <tbody id="adminVideoCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
+            </table>
+          </div>
         </div>
         <div>
           <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;"><i class="fas fa-comments"></i> Forum</h3>
-          <table class="admin-table">
-            <thead><tr><th>Name</th><th>Threads</th><th>Actions</th></tr></thead>
-            <tbody id="adminForumCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
-          </table>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Name</th><th>Threads</th><th>Actions</th></tr></thead>
+              <tbody id="adminForumCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
     `;
@@ -1820,10 +1858,12 @@
         <button class="btn btn-primary btn-sm" onclick="showCategoryModal(null, 'forum')"><i class="fas fa-plus"></i> New Category</button>
       </div>
       <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;">Recent Threads</h3>
-      <table class="admin-table">
-        <thead><tr><th>Title</th><th>Category</th><th>Replies</th><th>Author</th><th>Actions</th></tr></thead>
-        <tbody id="adminForumBody"><tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
-      </table>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr><th>Title</th><th>Category</th><th>Replies</th><th>Author</th><th>Actions</th></tr></thead>
+          <tbody id="adminForumBody"><tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
+        </table>
+      </div>
     `;
     setTimeout(loadAdminForum, 200);
     return html;
@@ -1904,27 +1944,28 @@
 
       main.innerHTML = `
         <div class="page-header"><div class="header-icon"><i class="fas fa-user"></i></div><h1>My Profile</h1></div>
-        <div style="max-width:800px;margin:0 auto;">
+        <div class="profile-shell">
 
-          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:32px;text-align:center;margin-bottom:24px;">
-            <div style="width:80px;height:80px;border-radius:50%;background:var(--accent-gradient);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#fff;margin:0 auto 16px;font-family:var(--font-mono);">${esc(initial)}</div>
-            <h2 style="font-family:var(--font-mono);">${esc(getDisplayName(p, currentUser))}</h2>
-            <p style="color:var(--text-muted);font-size:0.9rem;">${esc(p.email || '')}</p>
-            <p style="color:var(--text-secondary);margin-top:8px;">${esc(p.bio || 'No bio yet.')}</p>
-            ${p.role === 'admin' ? '<span style="display:inline-block;padding:2px 12px;border-radius:12px;font-size:0.75rem;background:var(--accent-purple);color:#fff;margin-top:8px;">Admin</span>' : ''}
-            ${Object.keys(normalizedLinks).length ? `<div style="margin-top:16px;">${linksHtml}</div>` : ''}
+          <div class="profile-hero-card">
+            <div class="profile-hero-bg"></div>
+            <div class="profile-avatar">${esc(initial)}</div>
+            <h2 class="profile-name">${esc(getDisplayName(p, currentUser))}</h2>
+            <p class="profile-email">${esc(p.email || '')}</p>
+            <p class="profile-bio">${esc(p.bio || 'No bio yet.')}</p>
+            ${p.role === 'admin' ? '<span class="admin-badge"><i class="fas fa-crown"></i> Administrator</span>' : ''}
+            ${Object.keys(normalizedLinks).length ? `<div class="profile-links-wrap">${linksHtml}</div>` : ''}
           </div>
 
-          <div class="admin-stats" style="margin-bottom:24px;">
+          <div class="admin-stats profile-stats">
             <div class="admin-stat"><div class="stat-icon"><i class="fas fa-comments"></i></div><div class="stat-number">${threadCount}</div><div class="stat-desc">Forum Threads</div></div>
             <div class="admin-stat"><div class="stat-icon"><i class="fas fa-reply"></i></div><div class="stat-number">${replyCount}</div><div class="stat-desc">Replies</div></div>
             <div class="admin-stat"><div class="stat-icon"><i class="fas fa-calendar"></i></div><div class="stat-number">${formatDate(p.createdAt)}</div><div class="stat-desc">Member Since</div></div>
           </div>
 
           ${currentUserRole === 'admin' ? `
-          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:20px;margin-bottom:24px;">
-            <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:12px;"><i class="fas fa-crown" style="color:var(--accent-orange);"></i> Admin Panel</h3>
-            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <div class="profile-section-card">
+            <h3 class="profile-section-title"><i class="fas fa-crown" style="color:var(--accent-orange);"></i> Admin Panel</h3>
+            <div class="admin-action-grid">
               <a class="btn btn-primary" href="#/admin/dashboard"><i class="fas fa-chart-simple"></i> Dashboard</a>
               <a class="btn btn-secondary" href="#/admin/blog"><i class="fas fa-feather-alt"></i> Blog Posts</a>
               <a class="btn btn-secondary" href="#/admin/videos"><i class="fas fa-video"></i> Videos</a>
@@ -1933,10 +1974,10 @@
             </div>
           </div>` : ''}
 
-          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:24px;margin-bottom:24px;">
-            <h3 style="font-family:var(--font-mono);font-size:1.1rem;margin-bottom:16px;"><i class="fas fa-edit"></i> Edit Profile</h3>
+          <div class="profile-section-card">
+            <h3 class="profile-section-title"><i class="fas fa-edit"></i> Edit Profile</h3>
             <form id="profileForm">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+              <div class="profile-form-grid">
                 <div class="form-group" style="grid-column:1/-1;">
                   <label for="pName">Display Name</label>
                   <input type="text" class="form-input" id="pName" value="${esc(p.displayName || '')}" placeholder="Your display name" required>
@@ -1970,9 +2011,17 @@
             </form>
           </div>
 
-          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:24px;margin-bottom:24px;">
-            <h3 style="font-family:var(--font-mono);font-size:1.1rem;margin-bottom:16px;"><i class="fas fa-lock"></i> Security</h3>
-            <button type="button" class="btn btn-secondary" onclick="showChangePassword()"><i class="fas fa-key"></i> Change Password</button>
+          <div class="profile-section-card">
+            <h3 class="profile-section-title"><i class="fas fa-lock"></i> Security</h3>
+            <div class="security-actions">
+              <button type="button" class="btn btn-secondary" onclick="showChangePassword()"><i class="fas fa-key"></i> Change Password</button>
+            </div>
+          </div>
+
+          <div class="profile-section-card danger-zone">
+            <h3 class="profile-section-title"><i class="fas fa-triangle-exclamation"></i> Danger Zone</h3>
+            <p class="danger-zone-text">Delete your own account permanently. Your profile will be removed and your forum posts will be anonymized to protect the rest of the discussion history.</p>
+            <button type="button" class="btn btn-danger" onclick="showDeleteAccount()"><i class="fas fa-user-slash"></i> Delete My Account</button>
           </div>
 
         </div>`;
@@ -2025,13 +2074,14 @@
       const initial = getUserInitial(p);
       const normalizedLinks = normalizeProfileLinks(p.links);
       main.innerHTML = `
-        <div style="max-width:700px;margin:0 auto;padding:40px 0;">
-          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:32px;text-align:center;">
-            <div style="width:80px;height:80px;border-radius:50%;background:var(--accent-gradient);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#fff;margin:0 auto 16px;font-family:var(--font-mono);">${esc(initial)}</div>
-            <h2 style="font-family:var(--font-mono);">${esc(getDisplayName(p))}</h2>
-            <p style="color:var(--text-secondary);margin-top:8px;">${esc(p.bio || '')}</p>
-            ${p.role === 'admin' ? '<span style="display:inline-block;padding:2px 12px;border-radius:12px;font-size:0.75rem;background:var(--accent-purple);color:#fff;margin-top:8px;">Admin</span>' : ''}
-            ${Object.keys(normalizedLinks).length ? `<div style="margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+        <div class="profile-public-shell">
+          <div class="profile-hero-card profile-public-card">
+            <div class="profile-hero-bg"></div>
+            <div class="profile-avatar">${esc(initial)}</div>
+            <h2 class="profile-name">${esc(getDisplayName(p))}</h2>
+            <p class="profile-bio">${esc(p.bio || '')}</p>
+            ${p.role === 'admin' ? '<span class="admin-badge"><i class="fas fa-crown"></i> Administrator</span>' : ''}
+            ${Object.keys(normalizedLinks).length ? `<div class="profile-links-wrap" style="margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
               ${normalizedLinks.github ? `<a href="${esc(normalizedLinks.github)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-github"></i></a>` : ''}
               ${normalizedLinks.twitter ? `<a href="${esc(normalizedLinks.twitter)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-x-twitter"></i></a>` : ''}
               ${normalizedLinks.website ? `<a href="${esc(normalizedLinks.website)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fas fa-globe"></i></a>` : ''}
@@ -2073,6 +2123,108 @@
       currentUser.reauthenticateWithCredential(cred).then(() => currentUser.updatePassword(newPw))
         .then(() => { toast('Password changed!', 'success'); overlay.remove(); })
         .catch(e => { toast(e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Update Password'; });
+    });
+  };
+
+  async function anonymizeUserContent(uid) {
+    const [threadSnap, replySnap] = await Promise.all([
+      dbx.forumThreads.where('authorId', '==', uid).get().catch(() => null),
+      dbx.forumReplies.where('authorId', '==', uid).get().catch(() => null)
+    ]);
+
+    const updates = [];
+
+    if (threadSnap && !threadSnap.empty) {
+      threadSnap.forEach(doc => {
+        updates.push(doc.ref.update({
+          author: 'Deleted User',
+          authorId: '',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }));
+      });
+    }
+
+    if (replySnap && !replySnap.empty) {
+      replySnap.forEach(doc => {
+        updates.push(doc.ref.update({
+          author: 'Deleted User',
+          authorId: '',
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }));
+      });
+    }
+
+    return Promise.all(updates);
+  }
+
+  window.showDeleteAccount = function() {
+    if (!currentUser) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay open';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:520px;">
+        <div class="modal-header">
+          <h3><i class="fas fa-user-slash"></i> Delete Account</h3>
+          <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="danger-zone danger-zone-modal">
+            <p class="danger-zone-text">This permanently deletes your login and profile. Your existing forum posts and replies will be anonymized instead of removed.</p>
+          </div>
+          <form id="deleteAccountForm">
+            <div class="form-group">
+              <label for="deleteConfirmText">Type DELETE to confirm</label>
+              <input type="text" class="form-input" id="deleteConfirmText" placeholder="DELETE" required>
+            </div>
+            <div class="form-group">
+              <label for="deletePassword">Current Password</label>
+              <input type="password" class="form-input" id="deletePassword" placeholder="Current password" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn btn-danger" id="deleteAccountBtn" style="width:100%;justify-content:center;">
+              <i class="fas fa-trash"></i> Permanently Delete Account
+            </button>
+          </form>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    $('deleteAccountForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const confirmText = $('deleteConfirmText').value.trim();
+      const password = $('deletePassword').value;
+      const btn = $('deleteAccountBtn');
+
+      if (confirmText !== 'DELETE') {
+        toast('Type DELETE exactly to continue.', 'error');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+
+      try {
+        const user = currentUser;
+        const uid = user.uid;
+        const cred = firebase.auth.EmailAuthProvider.credential(user.email, password);
+        await user.reauthenticateWithCredential(cred);
+        await anonymizeUserContent(uid);
+        await Promise.allSettled([
+          db.collection('profiles').doc(uid).delete(),
+          dbx.publicProfiles.doc(uid).delete()
+        ]);
+        await user.delete();
+        currentUserProfile = null;
+        currentUserRole = null;
+        toast('Your account has been deleted.', 'success');
+        overlay.remove();
+        router.navigate('/');
+      } catch (err) {
+        toast(err.message || 'Failed to delete account.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-trash"></i> Permanently Delete Account';
+      }
     });
   };
 

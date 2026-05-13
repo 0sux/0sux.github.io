@@ -6,7 +6,7 @@ service cloud.firestore {
     }
 
     function bootstrapAdminEmail() {
-      return signedIn() && request.auth.token.email in ['zero-warn@admin.com'];
+      return signedIn() && request.auth.token.email in ['official0warn@gmail.com'];
     }
 
     function privateProfile(uid) {
@@ -28,13 +28,27 @@ service cloud.firestore {
     }
 
     match /profiles/{uid} {
-      allow create: if isOwner(uid);
-      allow read, update, delete: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == (bootstrapAdminEmail() ? 'admin' : 'user');
+      allow read, delete: if isOwner(uid) || isAdmin();
+      allow update: if isAdmin()
+        || (
+          isOwner(uid)
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.role == resource.data.role
+        );
     }
 
     match /public_profiles/{uid} {
       allow read: if true;
-      allow create, update: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid)
+        && request.resource.data.role == (isAdmin() ? 'admin' : 'user');
+      allow update: if isAdmin()
+        || (
+          isOwner(uid)
+          && request.resource.data.role == resource.data.role
+        );
       allow delete: if isOwner(uid) || isAdmin();
     }
 
