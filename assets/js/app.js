@@ -4,6 +4,7 @@
   let currentUser = null;
   let currentUserProfile = null;
   let currentUserRole = null;
+  let currentUserClaims = {};
   let currentRoute = '';
   let authResolved = false;
   let allBlogPosts = [];
@@ -12,6 +13,7 @@
   let allBlogCategories = [];
   let allVideoCategories = [];
   const ADMIN_EMAILS = ['zero-warn@admin.com'];
+  const adminEmailSet = new Set(ADMIN_EMAILS.map(email => email.trim().toLowerCase()));
 
   const $ = id => document.getElementById(id);
   const q = sel => document.querySelector(sel);
@@ -190,13 +192,24 @@
   }
 
   function isBootstrapAdminEmail(email) {
-    return ADMIN_EMAILS.includes(normalizeEmail(email));
+    return adminEmailSet.has(normalizeEmail(email));
   }
 
   function resolveUserRole(profile = currentUserProfile, user = currentUser) {
+    if (currentUserClaims?.admin === true) return 'admin';
     if (profile?.role === 'admin') return 'admin';
     if (isBootstrapAdminEmail(user?.email)) return 'admin';
     return 'user';
+  }
+
+  function loadAdminConfig() {
+    return dbx.settings.doc('admin_config').get().then(doc => {
+      if (!doc.exists) return;
+      const emails = Array.isArray(doc.data()?.emails) ? doc.data().emails : [];
+      emails.map(normalizeEmail).filter(Boolean).forEach(email => adminEmailSet.add(email));
+    }).catch(err => {
+      console.error('adminConfig:', err);
+    });
   }
 
   function normalizeProfileLinks(links = {}) {
@@ -1911,7 +1924,12 @@
               <a class="btn btn-secondary" href="#/admin/categories"><i class="fas fa-tags"></i> Categories</a>
               <a class="btn btn-secondary" href="#/admin/forum"><i class="fas fa-comments"></i> Forum</a>
             </div>
-          </div>` : ''}
+          </div>` : `
+          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:20px;margin-bottom:24px;">
+            <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:12px;"><i class="fas fa-user-shield"></i> Account Role</h3>
+            <p style="color:var(--text-secondary);margin-bottom:8px;">This account is currently recognized as <strong>${esc(currentUserRole || 'user')}</strong>.</p>
+            <p style="color:var(--text-muted);font-size:0.9rem;">Admin access is granted when one of these is true: your Firebase custom claim has <code>admin: true</code>, your private profile role is <code>admin</code>, or your email is listed in the admin config.</p>
+          </div>`}
 
           <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:24px;margin-bottom:24px;">
             <h3 style="font-family:var(--font-mono);font-size:1.1rem;margin-bottom:16px;"><i class="fas fa-edit"></i> Edit Profile</h3>
@@ -2070,9 +2088,15 @@
     auth.onAuthStateChanged(user => {
       currentUser = user;
       currentUserProfile = null;
+      currentUserClaims = {};
 
       if (user) {
-        ensureUserProfile(user).then(profile => {
+        user.getIdTokenResult()
+        .then(tokenResult => {
+          currentUserClaims = tokenResult?.claims || {};
+          return ensureUserProfile(user);
+        })
+        .then(profile => {
           currentUserProfile = profile;
           currentUserRole = resolveUserRole(profile, user);
           authResolved = true;
@@ -2085,6 +2109,7 @@
         }).catch(e => {
           currentUserRole = 'user';
           currentUserProfile = { displayName: getFallbackDisplayName(user), email: user.email || '', role: 'user' };
+          currentUserClaims = {};
           authResolved = true;
           updateAuthNav();
           rerenderCurrentRoute();
@@ -2093,6 +2118,7 @@
       } else {
         currentUserRole = null;
         currentUserProfile = null;
+        currentUserClaims = {};
         authResolved = true;
         updateAuthNav();
         rerenderCurrentRoute();
@@ -2114,6 +2140,7 @@
 
   // === LOAD INITIAL DATA ===
   function loadInitialData() {
+    loadAdminConfig();
     refreshAllCategories();
   }
 

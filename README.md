@@ -64,6 +64,11 @@ Navigate to `/#/login` and sign in with the admin email/password you created in 
 
 If you want an account to be admin and it is not the bootstrap admin email, set `profiles/{uid}.role` to `admin` in Firestore.
 
+You can also grant admin access by either:
+
+- adding the email to `site_settings/admin_config` as `{"emails": ["admin@example.com"]}`
+- setting a Firebase custom claim `{ admin: true }` on the user
+
 ## Structure
 
 ```
