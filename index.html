@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>0warn - Cybersecurity Research</title>
+  <meta name="description" content="Cybersecurity research, tools, and community forum">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <div id="app">
+    <nav class="navbar" id="navbar">
+      <div class="nav-container">
+        <a class="nav-brand" href="#/" onclick="router.navigate('/')">
+          <span class="brand-icon">⎈</span>
+          <span class="brand-text">0warn</span>
+        </a>
+        <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+          <span></span><span></span><span></span>
+        </button>
+        <div class="nav-menu" id="navMenu">
+          <a class="nav-link" href="#/" data-nav="/"><i class="fas fa-home"></i> Home</a>
+          <a class="nav-link" href="#/blog" data-nav="/blog"><i class="fas fa-feather-alt"></i> Blog</a>
+          <a class="nav-link" href="#/videos" data-nav="/videos"><i class="fas fa-video"></i> Videos</a>
+          <a class="nav-link" href="#/forum" data-nav="/forum"><i class="fas fa-comments"></i> Forum</a>
+          <a class="nav-link" href="#/login" data-nav="/login" id="loginLink"><i class="fas fa-user-shield"></i> Login</a>
+          <a class="nav-link admin-link" href="#/admin" data-nav="/admin" id="adminLink" style="display:none"><i class="fas fa-crown"></i> Admin</a>
+        </div>
+      </div>
+    </nav>
+
+    <main class="main-content" id="mainContent">
+      <div class="loading-screen" id="loadingScreen">
+        <div class="loader"></div>
+        <p>Loading...</p>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-container">
+        <div class="footer-grid">
+          <div class="footer-section">
+            <h3>⎈ 0warn</h3>
+            <p>Cybersecurity research, penetration testing, and defensive security. Empowering the infosec community through knowledge sharing.</p>
+          </div>
+          <div class="footer-section">
+            <h4>Quick Links</h4>
+            <ul>
+              <li><a href="#/blog"><i class="fas fa-feather-alt"></i> Blog</a></li>
+              <li><a href="#/videos"><i class="fas fa-video"></i> Videos</a></li>
+              <li><a href="#/forum"><i class="fas fa-comments"></i> Forum</a></li>
+            </ul>
+          </div>
+          <div class="footer-section">
+            <h4>Connect</h4>
+            <div class="social-links">
+              <a href="#" target="_blank" rel="noopener" title="GitHub"><i class="fab fa-github"></i></a>
+              <a href="#" target="_blank" rel="noopener" title="Twitter"><i class="fab fa-x-twitter"></i></a>
+              <a href="#" target="_blank" rel="noopener" title="YouTube"><i class="fab fa-youtube"></i></a>
+              <a href="#" target="_blank" rel="noopener" title="Odysee"><i class="fas fa-globe"></i></a>
+            </div>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <p>&copy; <span id="footerYear"></span> 0warn. All rights reserved. <span class="glitch-text">// Secure your systems</span></p>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js">
+  </script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js">
+  </script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js">
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js">
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js">
+  </script>
+  <script src="assets/js/firebase-config.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
