@@ -62,12 +62,13 @@ Then enable GitHub Pages in your repo settings (Settings → Pages → Deploy fr
 
 Navigate to `/#/login` and sign in with the admin email/password you created in Firebase.
 
-If you want an account to be admin and it is not the bootstrap admin email, set `profiles/{uid}.role` to `admin` in Firestore.
+Admin access is strict by default. A user becomes admin only if one of these is true:
 
-You can also grant admin access by either:
+- their email is in the bootstrap admin list in `assets/js/app.js`
+- `site_settings/admin_config.emails` contains their email
+- their Firebase custom claim contains `{ admin: true }`
 
-- adding the email to `site_settings/admin_config` as `{"emails": ["admin@example.com"]}`
-- setting a Firebase custom claim `{ admin: true }` on the user
+Setting only `profiles/{uid}.role = "admin"` is not enough in strict mode.
 
 ## Structure
 
