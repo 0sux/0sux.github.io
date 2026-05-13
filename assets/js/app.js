@@ -50,6 +50,9 @@
         { pattern: '/forum', handler: 'forum' },
         { pattern: '/forum/*/*', handler: 'forumThread' },
         { pattern: '/forum/*', handler: 'forumCategory' },
+        { pattern: '/profile', handler: 'profile' },
+        { pattern: '/profile/*', handler: 'profileView' },
+        { pattern: '/settings', handler: 'settings' },
         { pattern: '/admin*', handler: 'admin' },
       ];
 
@@ -64,6 +67,9 @@
         if (route.pattern === '/forum' && hash === '/forum') { matched = true; this.render('forum'); break; }
         if (route.pattern === '/forum/*/*' && parts[0] === 'forum' && parts[1] && parts[2]) { matched = true; this.render('forumThread', parts[1], parts[2]); break; }
         if (route.pattern === '/forum/*' && parts[0] === 'forum' && parts[1]) { matched = true; this.render('forumCategory', parts[1]); break; }
+        if (route.pattern === '/profile' && hash === '/profile') { matched = true; this.render('profile'); break; }
+        if (route.pattern === '/profile/*' && parts[0] === 'profile' && parts[1]) { matched = true; this.render('profileView', parts[1]); break; }
+        if (route.pattern === '/settings' && hash === '/settings') { matched = true; this.render('settings'); break; }
         if (route.pattern === '/admin*' && hash.startsWith('/admin')) { matched = true; this.render('admin'); break; }
       }
 
@@ -89,6 +95,9 @@
           case 'forum': renderForum(main); break;
           case 'forumCategory': renderForumCategory(main, params[0]); break;
           case 'forumThread': renderForumThread(main, params[0], params[1]); break;
+          case 'profile': renderProfile(main); break;
+          case 'profileView': renderProfilePublic(main, params[0]); break;
+          case 'settings': renderSettings(main); break;
           case 'admin': renderAdmin(main); break;
           default: renderHome(main);
         }
@@ -822,7 +831,7 @@
               <div class="reply-author">
                 <div class="avatar">${esc(initial)}</div>
                 <div>
-                  <div class="name">${esc(r.author || 'Anonymous')}</div>
+                  <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
                   <div class="role">${currentUser?.uid ? 'Member' : 'Guest'}</div>
                 </div>
               </div>
@@ -851,7 +860,7 @@
               <div class="reply-author">
                 <div class="avatar">${esc(initial)}</div>
                 <div>
-                  <div class="name">${esc(t.author || 'Anonymous')}</div>
+                  <div class="name">${t.authorId ? `<a href="#/profile/${esc(t.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(t.author || 'Anonymous')}</a>` : esc(t.author || 'Anonymous')}</div>
                   <div class="role" style="color:var(--accent-purple);">Thread Starter</div>
                 </div>
               </div>
@@ -882,7 +891,7 @@
           btn.disabled = true;
           btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
 
-          dbx.forumReplies.add({ threadId, content, author: currentUser.email?.split('@')[0] || 'admin', createdAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
+          dbx.forumReplies.add({ threadId, content, author: currentUser.email?.split('@')[0] || 'admin', authorId: currentUser.uid || '', createdAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
             .then(() => dbx.forumThreads.doc(threadId).update({ replies: firebase.firestore.FieldValue.increment(1), lastActivityAt: firebase.firestore.FieldValue.serverTimestamp() }))
             .then(() => { toast('Reply posted!', 'success'); renderForumThread(main, catId, threadId); })
             .catch(e => { toast('Failed to post reply: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post Reply'; });
@@ -934,6 +943,7 @@
       dbx.forumThreads.add({
         categoryId: catId, title, content,
         author: currentUser.email?.split('@')[0] || 'admin',
+        authorId: currentUser.uid || '',
         replies: 0, views: 0, isPinned: false, isLocked: false,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         lastActivityAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1667,6 +1677,180 @@
 
   function attachForumAdminHandlers() { loadAdminForum(); }
 
+  // === PROFILE ===
+  function renderProfile(main) {
+    if (!currentUser) { router.navigate('/login'); return; }
+    main.innerHTML = '<div class="loading-screen"><div class="loader"></div><p>Loading profile...</p></div>';
+    db.collection('profiles').doc(currentUser.uid).get().then(doc => {
+      const p = doc.exists ? doc.data() : {};
+      const initial = (p.displayName || p.email || 'U')[0].toUpperCase();
+      main.innerHTML = `
+        <div class="page-header"><div class="header-icon"><i class="fas fa-user"></i></div><h1>My Profile</h1></div>
+        <div style="max-width:700px;margin:0 auto;">
+          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:32px;text-align:center;margin-bottom:24px;">
+            <div style="width:80px;height:80px;border-radius:50%;background:var(--accent-gradient);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#fff;margin:0 auto 16px;font-family:var(--font-mono);">${esc(initial)}</div>
+            <h2 style="font-family:var(--font-mono);">${esc(p.displayName || 'User')}</h2>
+            <p style="color:var(--text-muted);font-size:0.9rem;">${esc(p.email || '')}</p>
+            <p style="color:var(--text-secondary);margin-top:8px;">${esc(p.bio || 'No bio yet.')}</p>
+            ${p.role === 'admin' ? '<span style="display:inline-block;padding:2px 12px;border-radius:12px;font-size:0.75rem;background:var(--accent-purple);color:#fff;margin-top:8px;">Admin</span>' : ''}
+          </div>
+          ${p.links ? `
+          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:24px;margin-bottom:24px;">
+            <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:12px;">Links</h3>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+              ${p.links.github ? `<a href="${esc(p.links.github)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-github"></i> GitHub</a>` : ''}
+              ${p.links.twitter ? `<a href="${esc(p.links.twitter)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-x-twitter"></i> Twitter</a>` : ''}
+              ${p.links.website ? `<a href="${esc(p.links.website)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fas fa-globe"></i> Website</a>` : ''}
+              ${p.links.youtube ? `<a href="${esc(p.links.youtube)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-youtube"></i> YouTube</a>` : ''}
+            </div>
+          </div>` : ''}
+          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:24px;">
+            <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:12px;">Account Info</h3>
+            <p style="color:var(--text-secondary);font-size:0.9rem;">Joined: ${formatDateFull(p.createdAt)}</p>
+            <p style="color:var(--text-secondary);font-size:0.9rem;">Role: ${p.role || 'user'}</p>
+          </div>
+          <div style="text-align:center;margin-top:24px;">
+            <a class="btn btn-primary" href="#/settings"><i class="fas fa-edit"></i> Edit Profile</a>
+          </div>
+        </div>`;
+    }).catch(e => { main.innerHTML = '<div class="no-posts"><p>Failed to load profile.</p></div>'; console.error(e); });
+  }
+
+  function renderProfilePublic(main, uid) {
+    main.innerHTML = '<div class="loading-screen"><div class="loader"></div><p>Loading profile...</p></div>';
+    db.collection('profiles').doc(uid).get().then(doc => {
+      if (!doc.exists) { main.innerHTML = '<div class="no-posts"><i class="fas fa-user"></i><p>User not found.</p></div>'; return; }
+      const p = doc.data();
+      const initial = (p.displayName || p.email || 'U')[0].toUpperCase();
+      main.innerHTML = `
+        <div style="max-width:700px;margin:0 auto;padding:40px 0;">
+          <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:32px;text-align:center;">
+            <div style="width:80px;height:80px;border-radius:50%;background:var(--accent-gradient);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#fff;margin:0 auto 16px;font-family:var(--font-mono);">${esc(initial)}</div>
+            <h2 style="font-family:var(--font-mono);">${esc(p.displayName || 'User')}</h2>
+            <p style="color:var(--text-secondary);margin-top:8px;">${esc(p.bio || '')}</p>
+            ${p.role === 'admin' ? '<span style="display:inline-block;padding:2px 12px;border-radius:12px;font-size:0.75rem;background:var(--accent-purple);color:#fff;margin-top:8px;">Admin</span>' : ''}
+            ${p.links ? `<div style="margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+              ${p.links.github ? `<a href="${esc(p.links.github)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-github"></i></a>` : ''}
+              ${p.links.twitter ? `<a href="${esc(p.links.twitter)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-x-twitter"></i></a>` : ''}
+              ${p.links.website ? `<a href="${esc(p.links.website)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fas fa-globe"></i></a>` : ''}
+              ${p.links.youtube ? `<a href="${esc(p.links.youtube)}" target="_blank" rel="noopener" class="btn btn-sm btn-secondary"><i class="fab fa-youtube"></i></a>` : ''}
+            </div>` : ''}
+          </div>
+          <div style="text-align:center;margin-top:16px;">
+            <a class="btn btn-sm btn-secondary" href="#/forum"><i class="fas fa-arrow-left"></i> Back to Forum</a>
+          </div>
+        </div>`;
+    }).catch(() => { main.innerHTML = '<div class="no-posts"><p>User not found.</p></div>'; });
+  }
+
+  // === SETTINGS ===
+  function renderSettings(main) {
+    if (!currentUser) { router.navigate('/login'); return; }
+    main.innerHTML = '<div class="loading-screen"><div class="loader"></div><p>Loading settings...</p></div>';
+    db.collection('profiles').doc(currentUser.uid).get().then(doc => {
+      const p = doc.exists ? doc.data() : {};
+      main.innerHTML = `
+        <div class="page-header"><div class="header-icon"><i class="fas fa-gear"></i></div><h1>Account Settings</h1></div>
+        <div style="max-width:600px;margin:0 auto;">
+          <form id="settingsForm">
+            <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:24px;margin-bottom:24px;">
+              <h3 style="font-family:var(--font-mono);font-size:1.1rem;margin-bottom:16px;"><i class="fas fa-user"></i> Profile Info</h3>
+              <div class="form-group">
+                <label for="sName">Display Name</label>
+                <input type="text" class="form-input" id="sName" value="${esc(p.displayName || '')}" placeholder="Your display name" required>
+              </div>
+              <div class="form-group">
+                <label for="sBio">Bio / Description</label>
+                <textarea class="form-textarea" id="sBio" placeholder="Tell us about yourself..." style="min-height:100px;">${esc(p.bio || '')}</textarea>
+              </div>
+              <div class="form-group">
+                <label for="sAvatar">Avatar URL</label>
+                <input type="url" class="form-input" id="sAvatar" value="${esc(p.avatar || '')}" placeholder="https://example.com/avatar.jpg">
+              </div>
+            </div>
+            <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:24px;margin-bottom:24px;">
+              <h3 style="font-family:var(--font-mono);font-size:1.1rem;margin-bottom:16px;"><i class="fas fa-link"></i> Social Links</h3>
+              <div class="form-group">
+                <label for="sGithub"><i class="fab fa-github"></i> GitHub</label>
+                <input type="url" class="form-input" id="sGithub" value="${esc(p.links?.github || '')}" placeholder="https://github.com/username">
+              </div>
+              <div class="form-group">
+                <label for="sTwitter"><i class="fab fa-x-twitter"></i> Twitter / X</label>
+                <input type="url" class="form-input" id="sTwitter" value="${esc(p.links?.twitter || '')}" placeholder="https://x.com/username">
+              </div>
+              <div class="form-group">
+                <label for="sYoutube"><i class="fab fa-youtube"></i> YouTube</label>
+                <input type="url" class="form-input" id="sYoutube" value="${esc(p.links?.youtube || '')}" placeholder="https://youtube.com/@channel">
+              </div>
+              <div class="form-group">
+                <label for="sWebsite"><i class="fas fa-globe"></i> Website</label>
+                <input type="url" class="form-input" id="sWebsite" value="${esc(p.links?.website || '')}" placeholder="https://yourwebsite.com">
+              </div>
+            </div>
+            <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:24px;margin-bottom:24px;">
+              <h3 style="font-family:var(--font-mono);font-size:1.1rem;margin-bottom:16px;"><i class="fas fa-lock"></i> Security</h3>
+              <button type="button" class="btn btn-secondary" onclick="showChangePassword()"><i class="fas fa-key"></i> Change Password</button>
+            </div>
+            <button type="submit" class="btn btn-primary" id="saveSettingsBtn" style="width:100%;justify-content:center;"><i class="fas fa-save"></i> Save Changes</button>
+          </form>
+        </div>`;
+
+      $('settingsForm').addEventListener('submit', e => {
+        e.preventDefault();
+        const btn = $('saveSettingsBtn');
+        btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        db.collection('profiles').doc(currentUser.uid).update({
+          displayName: $('sName').value.trim(),
+          bio: $('sBio').value.trim(),
+          avatar: $('sAvatar').value.trim(),
+          links: {
+            github: $('sGithub').value.trim(),
+            twitter: $('sTwitter').value.trim(),
+            youtube: $('sYoutube').value.trim(),
+            website: $('sWebsite').value.trim()
+          }
+        }).then(() => {
+          toast('Profile updated!', 'success');
+          btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+        }).catch(e => {
+          toast('Failed: ' + e.message, 'error');
+          btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+        });
+      });
+    }).catch(e => { main.innerHTML = '<div class="no-posts"><p>Failed to load settings.</p></div>'; console.error(e); });
+  }
+
+  window.showChangePassword = function() {
+    if (!currentUser) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay open';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:450px;">
+        <div class="modal-header"><h3><i class="fas fa-key"></i> Change Password</h3><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button></div>
+        <div class="modal-body">
+          <form id="pwForm">
+            <div class="form-group"><label>Current Password</label><input type="password" class="form-input" id="oldPw" placeholder="Current password" required></div>
+            <div class="form-group"><label>New Password</label><input type="password" class="form-input" id="newPw" placeholder="Min 6 characters" required minlength="6"></div>
+            <div class="form-group"><label>Confirm New Password</label><input type="password" class="form-input" id="confirmPw" placeholder="Repeat new password" required></div>
+            <button type="submit" class="btn btn-primary" id="pwBtn" style="width:100%;justify-content:center;"><i class="fas fa-save"></i> Update Password</button>
+          </form>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    $('pwForm').addEventListener('submit', e => {
+      e.preventDefault();
+      const oldPw = $('oldPw').value, newPw = $('newPw').value, confirmPw = $('confirmPw').value;
+      if (newPw !== confirmPw) { toast('Passwords do not match.', 'error'); return; }
+      if (newPw.length < 6) { toast('Password too short.', 'error'); return; }
+      const btn = $('pwBtn'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+      const cred = firebase.auth.EmailAuthProvider.credential(currentUser.email, oldPw);
+      currentUser.reauthenticateWithCredential(cred).then(() => currentUser.updatePassword(newPw))
+        .then(() => { toast('Password changed!', 'success'); overlay.remove(); })
+        .catch(e => { toast(e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Update Password'; });
+    });
+  };
+
   // === LOGOUT ===
   window.logout = function() {
     auth.signOut().then(() => {
@@ -1683,6 +1867,8 @@
       const loginLink = $('loginLink');
       const adminLink = $('adminLink');
       const registerLink = $('registerLink');
+      const profileLink = $('profileLink');
+      const settingsLink = $('settingsLink');
 
       if (user) {
         db.collection('profiles').doc(user.uid).get().then(doc => {
@@ -1700,6 +1886,8 @@
           }
           if (loginLink) loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User');
           if (registerLink) registerLink.style.display = 'none';
+          if (profileLink) profileLink.style.display = 'flex';
+          if (settingsLink) settingsLink.style.display = 'flex';
           if (adminLink) {
             if (currentUserRole === 'admin') adminLink.style.display = 'flex';
             else adminLink.style.display = 'none';
@@ -1708,12 +1896,16 @@
           if (loginLink) loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User');
           if (adminLink) adminLink.style.display = 'none';
           if (registerLink) registerLink.style.display = 'none';
+          if (profileLink) profileLink.style.display = 'flex';
+          if (settingsLink) settingsLink.style.display = 'flex';
           showFirestoreBanner();
         });
       } else {
         currentUserRole = null;
         if (loginLink) loginLink.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
         if (registerLink) registerLink.style.display = '';
+        if (profileLink) profileLink.style.display = 'none';
+        if (settingsLink) settingsLink.style.display = 'none';
         if (adminLink) adminLink.style.display = 'none';
       }
       if (currentRoute.startsWith('/admin') && (!user || currentUserRole !== 'admin')) {
