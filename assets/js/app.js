@@ -670,8 +670,11 @@
           return db.collection('profiles').doc(cred.user.uid).set(profile).then(() => {
             return syncPublicProfileSafely(cred.user.uid, profile);
           }).catch(fsErr => {
-            cred.user.delete().catch(() => {});
-            throw new Error('Firestore is blocked by your browser/extension. Disable ad blockers or tracking protection for this site, or use Chrome.');
+            // Firestore writes failed (e.g., blocked by extension or offline).
+            // Do not abort account creation; let user sign in and show a non-blocking toast.
+            console.error('profileWriteFailed:', fsErr);
+            toast('Warning: profile sync failed (Firestore). Some features may be limited until you reload or disable blockers.', 'warning');
+            return Promise.resolve();
           });
         })
         .then(() => {
@@ -2185,17 +2188,37 @@
     let html = `
       <div class="admin-header">
         <h2><i class="fas fa-comments"></i> Forum Management</h2>
-        <button class="btn btn-primary btn-sm" onclick="showCategoryModal(null, 'forum')"><i class="fas fa-plus"></i> New Category</button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-primary btn-sm" onclick="showCategoryModal(null, 'forum')"><i class="fas fa-plus"></i> New Category</button>
+          <button class="btn btn-secondary btn-sm" onclick="refreshAllCategories()"><i class="fas fa-sync"></i> Refresh Categories</button>
+        </div>
       </div>
-      <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;">Recent Threads</h3>
-      <div class="admin-table-wrap">
-        <table class="admin-table">
-          <thead><tr><th>Title</th><th>Category</th><th>Replies</th><th>Author</th><th>Actions</th></tr></thead>
-          <tbody id="adminForumBody"><tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
-        </table>
+
+      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
+        <div style="flex:1;min-width:320px;">
+          <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:12px;"><i class="fas fa-tags"></i> Forum Categories</h3>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Name</th><th>Threads</th><th>Actions</th></tr></thead>
+              <tbody id="adminForumCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div style="flex:2;min-width:420px;">
+          <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:12px;"><i class="fas fa-list"></i> Recent Threads</h3>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead><tr><th>Title</th><th>Category</th><th>Replies</th><th>Author</th><th>Actions</th></tr></thead>
+              <tbody id="adminForumBody"><tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     `;
-    setTimeout(loadAdminForum, 200);
+
+    // load both categories and threads
+    setTimeout(() => { loadAdminForumCategories(); loadAdminForum(); }, 200);
     return html;
   }
 
@@ -2247,7 +2270,53 @@
     });
   };
 
-  function attachForumAdminHandlers() { loadAdminForum(); }
+  function attachForumAdminHandlers() {
+    // Load threads and ensure category list is available
+    loadAdminForumCategories();
+    loadAdminForum();
+
+    // Create search inputs above the categories and threads tables if missing
+    const catContainer = document.querySelector('#adminForumCatBody')?.closest('.admin-table-wrap');
+    if (catContainer && !document.getElementById('adminCatSearch')) {
+      const wrapper = document.createElement('div');
+      wrapper.style = 'margin-bottom:8px;';
+      wrapper.innerHTML = `<input type="search" id="adminCatSearch" class="form-input" placeholder="Search categories..." style="width:100%;max-width:380px;">`;
+      catContainer.parentNode.insertBefore(wrapper, catContainer);
+    }
+
+    const threadContainer = document.querySelector('#adminForumBody')?.closest('.admin-table-wrap');
+    if (threadContainer && !document.getElementById('adminThreadSearch')) {
+      const wrapper = document.createElement('div');
+      wrapper.style = 'margin-bottom:8px;';
+      wrapper.innerHTML = `<input type="search" id="adminThreadSearch" class="form-input" placeholder="Search threads..." style="width:100%;max-width:480px;">`;
+      threadContainer.parentNode.insertBefore(wrapper, threadContainer);
+    }
+
+    // Attach search handlers (debounced)
+    function debounce(fn, wait = 200){ let t; return (...args)=>{ clearTimeout(t); t = setTimeout(()=>fn(...args), wait); }; }
+
+    const catSearchEl = $('adminCatSearch');
+    if (catSearchEl) {
+      catSearchEl.addEventListener('input', debounce(() => {
+        const q = (catSearchEl.value || '').trim().toLowerCase();
+        document.querySelectorAll('#adminForumCatBody tr').forEach(row => {
+          const text = (row.textContent || '').toLowerCase();
+          row.style.display = q ? (text.includes(q) ? '' : 'none') : '';
+        });
+      }));
+    }
+
+    const threadSearchEl = $('adminThreadSearch');
+    if (threadSearchEl) {
+      threadSearchEl.addEventListener('input', debounce(() => {
+        const q = (threadSearchEl.value || '').trim().toLowerCase();
+        document.querySelectorAll('#adminForumBody tr').forEach(row => {
+          const text = (row.textContent || '').toLowerCase();
+          row.style.display = q ? (text.includes(q) ? '' : 'none') : '';
+        });
+      }));
+    }
+  }
 
   // === PROFILE & DASHBOARD ===
   function renderProfile(main) {
