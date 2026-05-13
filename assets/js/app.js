@@ -1117,71 +1117,88 @@
       const repliesQuery = dbx.forumReplies.where('threadId', '==', threadId).orderBy('createdAt');
       const threadRef = dbx.forumThreads.doc(threadId);
 
-      const repliesUnsub = repliesQuery.onSnapshot(snap => {
-        let repliesHtml = '';
-        if (snap.empty) {
-          repliesHtml = '<div class="no-posts" style="padding:20px;"><i class="fas fa-comment"></i><p>No replies yet. Be the first to respond.</p></div>';
-        } else {
-          snap.forEach(doc => {
-            const r = doc.data();
-            // Build avatar/role from profiles map if available
-            let authorHtml = '';
-            if (r.authorId && profiles[r.authorId]) {
-              const p = profiles[r.authorId];
-              const avatar = p.avatar ? `<div class="avatar"><img src="${esc(p.avatar)}" alt="${esc(p.displayName || r.author || 'User')}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;"/></div>` : `<div class="avatar">${esc((p.displayName||r.author||'A').charAt(0).toUpperCase())}</div>`;
-              const roleLabel = p.role === 'admin' ? 'Administrator' : 'Member';
-              authorHtml = `
-                <div class="reply-author">
-                  ${avatar}
-                  <div>
-                    <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || p.displayName || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
-                    <div class="role">${roleLabel}</div>
-                  </div>
-                </div>`;
-            } else {
-              const initial = (r.author || 'A')[0].toUpperCase();
-              authorHtml = `
-                <div class="reply-author">
-                  <div class="avatar">${esc(initial)}</div>
-                  <div>
-                    <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
-                    <div class="role">${r.authorId ? 'Member' : 'Guest'}</div>
-                  </div>
-                </div>`;
-            }
+      // Initialize flag for new-reply detection
+      window._repliesInitialLoaded = false;
+      let repliesUnsub = null;
+      try {
+        repliesUnsub = repliesQuery.onSnapshot(snap => {
+          let repliesHtml = '';
+          if (snap.empty) {
+            repliesHtml = '<div class="no-posts" style="padding:20px;"><i class="fas fa-comment"></i><p>No replies yet. Be the first to respond.</p></div>';
+          } else {
+            snap.forEach(doc => {
+              const r = doc.data();
+              // Build avatar/role from profiles map if available
+              let authorHtml = '';
+              if (r.authorId && profiles[r.authorId]) {
+                const p = profiles[r.authorId];
+                const avatar = p.avatar ? `<div class="avatar"><img src="${esc(p.avatar)}" alt="${esc(p.displayName || r.author || 'User')}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;"/></div>` : `<div class="avatar">${esc((p.displayName||r.author||'A').charAt(0).toUpperCase())}</div>`;
+                const roleLabel = p.role === 'admin' ? 'Administrator' : 'Member';
+                authorHtml = `
+                  <div class="reply-author">
+                    ${avatar}
+                    <div>
+                      <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || p.displayName || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
+                      <div class="role">${roleLabel}</div>
+                    </div>
+                  </div>`;
+              } else {
+                const initial = (r.author || 'A')[0].toUpperCase();
+                authorHtml = `
+                  <div class="reply-author">
+                    <div class="avatar">${esc(initial)}</div>
+                    <div>
+                      <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
+                      <div class="role">${r.authorId ? 'Member' : 'Guest'}</div>
+                    </div>
+                  </div>`;
+              }
 
-            repliesHtml += `
-              <div class="reply-item" data-reply-id="${esc(doc.id)}">
-                <div class="reply-header">
-                  ${authorHtml}
-                  <div class="reply-date">${formatDateFull(r.createdAt)}</div>
-                </div>
-                <div class="reply-content">${renderMarkdown(r.content)}</div>
-                <div class="reply-actions">
-                  ${currentUser ? `<button class="reply-action" onclick="window.openReply('${esc(doc.id)}')"><i class="fas fa-reply"></i> Reply</button>` : ''}
-                  ${currentUser ? `<button class="reply-action" onclick="window.quoteReply('${esc(doc.id)}','${esc(r.author || 'Anonymous')}')"><i class="fas fa-quote-right"></i> Quote</button>` : ''}
-                </div>
-              </div>`;
-          });
-        }
-        const container = $('repliesContainer');
-        if (container) container.innerHTML = repliesHtml;
-        highlightCode();
-        // Optionally indicate new replies (toast) when snapshot has docChanges
-        if (!snap.metadata.hasPendingWrites) {
-          const changes = snap.docChanges();
-          changes.forEach(c => {
-            if (c.type === 'added') {
-              // simple real-time indicator: small toast
-              // avoid spamming when initial load
-              if (window._repliesInitialLoaded) {
+              repliesHtml += `
+                <div class="reply-item" data-reply-id="${esc(doc.id)}">
+                  <div class="reply-header">
+                    ${authorHtml}
+                    <div class="reply-date">${formatDateFull(r.createdAt)}</div>
+                  </div>
+                  <div class="reply-content">${renderMarkdown(r.content)}</div>
+                  <div class="reply-actions">
+                    ${currentUser ? `<button class="reply-action" onclick="window.openReply('${esc(doc.id)}')"><i class="fas fa-reply"></i> Reply</button>` : ''}
+                    ${currentUser ? `<button class="reply-action" onclick="window.quoteReply('${esc(doc.id)}','${esc(r.author || 'Anonymous')}')"><i class="fas fa-quote-right"></i> Quote</button>` : ''}
+                  </div>
+                </div>`;
+            });
+          }
+
+          const container = $('repliesContainer');
+          if (container) container.innerHTML = repliesHtml;
+          highlightCode();
+
+          // Indicate new replies after initial load
+          if (!snap.metadata.hasPendingWrites) {
+            const changes = snap.docChanges();
+            changes.forEach(c => {
+              if (c.type === 'added' && window._repliesInitialLoaded) {
                 toast('New reply', 'info');
               }
-            }
-          });
-        }
-        window._repliesInitialLoaded = true;
-      }, err => console.error('repliesListener:', err));
+            });
+          }
+
+          // mark that initial load finished
+          window._repliesInitialLoaded = true;
+        }, err => {
+          console.error('repliesListener:', err);
+          const container = $('repliesContainer');
+          if (container) container.innerHTML = '<div class="no-posts" style="padding:20px;color:var(--text-muted);"><i class="fas fa-exclamation-triangle"></i><p>Failed to load replies.</p></div>';
+          toast('Failed to load replies: ' + (err && err.message ? err.message : 'unknown'), 'error');
+        });
+      } catch(e) {
+        console.error('repliesListenerSetup:', e);
+        const container = $('repliesContainer');
+        if (container) container.innerHTML = '<div class="no-posts" style="padding:20px;color:var(--text-muted);"><i class="fas fa-exclamation-triangle"></i><p>Failed to initialize replies.</p></div>';
+      }
+
+      // store unsubscribe to allow cleanup when navigating away
+      window._threadUnsubscribe = () => { try { if (repliesUnsub) repliesUnsub(); } catch(e) {} try { threadUnsub(); } catch(e) {} };
 
       const threadUnsub = threadRef.onSnapshot(doc => {
         if (!doc.exists) return;
@@ -1922,7 +1939,7 @@
         let html = '';
         snap.forEach(doc => {
           const c = doc.data();
-          html += `<tr><td>${esc(c.name)}</td><td>${c.threadCount || 0}</td><td class="actions"><button class="btn btn-sm btn-secondary" onclick="showCategoryModal('${doc.id}','forum')" title="Edit"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger" onclick="deleteCategory('${doc.id}','forum')" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`;
+          html += `<tr><td>${esc(c.name)}</td><td>${c.threadCount || 0}</td><td class="actions"><button class="btn btn-sm btn-secondary" onclick="showCategoryModal('${doc.id}','forum')" title="Edit"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-secondary" onclick="manageCategoryThreads('${doc.id}','${esc(c.name)}')" title="Manage Threads"><i class="fas fa-folder-open"></i></button><button class="btn btn-sm btn-danger" onclick="deleteCategory('${doc.id}','forum')" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`;
         });
         body.innerHTML = html;
       });
@@ -2017,6 +2034,68 @@
   };
 
   function attachCategoryHandlers() { loadAdminBlogCategories(); loadAdminVideoCategories(); loadAdminForumCategories(); }
+
+  // Open a modal for managing threads within a specific forum category (admin-only)
+  window.manageCategoryThreads = function(catId, catName) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay open';
+    overlay.id = 'manageThreadsModal';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:900px;">
+        <div class="modal-header">
+          <h3><i class="fas fa-folder-open"></i> Manage Threads — ${esc(catName || '')}</h3>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-sm btn-primary" id="adminNewThreadBtn"><i class="fas fa-plus"></i> New Thread</button>
+            <button class="modal-close btn btn-sm btn-outline" onclick="document.getElementById('manageThreadsModal')?.remove()">Close</button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div class="admin-table-wrap">
+            <table class="admin-table" id="manageThreadsTable">
+              <thead><tr><th>Title</th><th>Replies</th><th>Author</th><th>Last Activity</th><th>Actions</th></tr></thead>
+              <tbody id="manageThreadsBody"><tr><td colspan="5" class="table-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    // wire new thread button to existing modal
+    const newBtn = document.getElementById('adminNewThreadBtn');
+    if (newBtn) newBtn.addEventListener('click', () => showNewThreadModal(catId));
+
+    // load threads for this category
+    function refresh() {
+      dbx.forumThreads.where('categoryId', '==', catId).orderBy('lastActivityAt', 'desc').get()
+        .then(snap => {
+          const body = $('manageThreadsBody');
+          if (!body) return;
+          if (snap.empty) { body.innerHTML = '<tr><td colspan="5" class="table-empty">No threads in this category</td></tr>'; return; }
+          let html = '';
+          snap.forEach(doc => {
+            const t = doc.data();
+            html += `<tr>
+              <td><strong>${esc(t.title)}</strong> ${t.isPinned ? '<span style="color:var(--accent-orange);font-size:0.75rem;">PINNED</span>' : ''} ${t.isLocked ? '<span style="color:var(--accent-red);font-size:0.75rem;">LOCKED</span>' : ''}</td>
+              <td>${t.replies || 0}</td>
+              <td style="font-family:var(--font-mono);font-size:0.8rem;">${esc(t.author || 'anonymous')}</td>
+              <td style="font-family:var(--font-mono);font-size:0.8rem;">${formatDateFull(t.lastActivityAt)}</td>
+              <td class="actions">
+                <a class="btn btn-sm btn-secondary" href="#/forum/${catId}/${doc.id}" target="_blank" title="View"><i class="fas fa-eye"></i></a>
+                <button class="btn btn-sm ${t.isPinned ? 'btn-outline' : 'btn-secondary'}" onclick="togglePin('${doc.id}', ${!t.isPinned})" title="${t.isPinned ? 'Unpin' : 'Pin'}"><i class="fas fa-thumbtack"></i></button>
+                <button class="btn btn-sm ${t.isLocked ? 'btn-outline' : 'btn-secondary'}" onclick="toggleLock('${doc.id}', ${!t.isLocked})" title="${t.isLocked ? 'Unlock' : 'Lock'}"><i class="fas ${t.isLocked ? 'fa-unlock' : 'fa-lock'}"></i></button>
+                <button class="btn btn-sm btn-danger" onclick="deleteThread('${doc.id}')" title="Delete"><i class="fas fa-trash"></i></button>
+              </td>
+            </tr>`;
+          });
+          body.innerHTML = html;
+        }).catch(e => {
+          const body = $('manageThreadsBody'); if (body) body.innerHTML = '<tr><td colspan="5" class="table-empty"><i class="fas fa-exclamation-triangle"></i> Failed to load threads</td></tr>';
+          toast('Failed to load threads: ' + (e.message || e), 'error');
+        });
+    }
+
+    refresh();
+  }
 
   // === ADMIN FORUM ===
   function adminForum() {
