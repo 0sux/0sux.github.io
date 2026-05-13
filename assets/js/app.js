@@ -2,11 +2,14 @@
   'use strict';
 
   let currentUser = null;
+  let currentUserRole = null;
   let currentRoute = '';
   let allBlogPosts = [];
   let allVideos = [];
   let allForumCategories = [];
   let allBlogCategories = [];
+  let allVideoCategories = [];
+  const ADMIN_EMAILS = ['zero-warn@admin.com'];
 
   const $ = id => document.getElementById(id);
   const q = sel => document.querySelector(sel);
@@ -40,6 +43,7 @@
       const routes = [
         { pattern: '/', handler: 'home' },
         { pattern: '/login', handler: 'login' },
+        { pattern: '/register', handler: 'register' },
         { pattern: '/blog', handler: 'blog' },
         { pattern: '/blog/*', handler: 'blogPost' },
         { pattern: '/videos', handler: 'videos' },
@@ -53,6 +57,7 @@
         const routeParts = route.pattern.split('/').filter(Boolean);
         if (route.pattern === '/' && hash === '/') { matched = true; this.render('home'); break; }
         if (route.pattern === '/login' && hash === '/login') { matched = true; this.render('login'); break; }
+        if (route.pattern === '/register' && hash === '/register') { matched = true; this.render('register'); break; }
         if (route.pattern === '/blog' && hash === '/blog') { matched = true; this.render('blog'); break; }
         if (route.pattern === '/blog/*' && parts[0] === 'blog' && parts[1]) { matched = true; this.render('blogPost', parts[1]); break; }
         if (route.pattern === '/videos' && hash === '/videos') { matched = true; this.render('videos'); break; }
@@ -74,10 +79,11 @@
       const main = $('mainContent');
       main.innerHTML = '<div class="loading-screen"><div class="loader"></div><p>Loading...</p></div>';
       setTimeout(() => {
-        switch(view) {
-          case 'home': renderHome(main); break;
-          case 'login': renderLogin(main); break;
-          case 'blog': renderBlog(main); break;
+      switch(view) {
+        case 'home': renderHome(main); break;
+        case 'login': renderLogin(main); break;
+        case 'register': renderRegister(main); break;
+        case 'blog': renderBlog(main); break;
           case 'blogPost': renderBlogPost(main, params[0]); break;
           case 'videos': renderVideos(main); break;
           case 'forum': renderForum(main); break;
@@ -254,19 +260,25 @@
   }
 
   function loadHomePosts() {
-    dbx.blog.where('published', '==', true).orderBy('createdAt', 'desc').limit(3).get()
-      .then(snap => {
+    dbx.blog.get().then(snap => {
         const container = $('homePosts');
         if (!container) return;
-        if (snap.empty) {
+        let posts = [];
+        snap.forEach(doc => {
+          const p = doc.data();
+          if (!p.published) return;
+          posts.push({ id: doc.id, data: p });
+        });
+        posts.sort((a, b) => (b.data.createdAt?.seconds || 0) - (a.data.createdAt?.seconds || 0));
+        posts = posts.slice(0, 3);
+        if (!posts.length) {
           container.innerHTML = '<div class="no-posts"><i class="fas fa-feather-alt"></i><p>No posts yet. Check back soon.</p></div>';
           return;
         }
         let html = '';
-        snap.forEach(doc => {
-          const p = doc.data();
+        posts.forEach(({ id, data: p }) => {
           html += `
-            <div class="blog-card" onclick="router.navigate('/blog/${doc.id}')">
+            <div class="blog-card" onclick="router.navigate('/blog/${id}')">
               <div class="card-category" style="color:${getCategoryColor(p.category)};border:1px solid ${getCategoryColor(p.category)}">${esc(p.category || 'General')}</div>
               <h3>${esc(p.title)}</h3>
               <p>${esc(p.excerpt || p.content?.slice(0, 150) || '')}</p>
@@ -278,7 +290,7 @@
         });
         container.innerHTML = html;
       })
-      .catch(() => {});
+      .catch(e => { console.error('homePosts:', e); });
   }
 
   function loadHomeVideos() {
@@ -317,30 +329,33 @@
   // === LOGIN ===
   function renderLogin(main) {
     if (currentUser) {
-      router.navigate('/admin');
+      router.navigate('/forum');
       return;
     }
     main.innerHTML = `
       <div class="auth-container">
         <div class="auth-header">
-          <div class="auth-icon"><i class="fas fa-user-shield"></i></div>
-          <h2>Admin Access</h2>
-          <p>Authorized personnel only</p>
+          <div class="auth-icon"><i class="fas fa-sign-in-alt"></i></div>
+          <h2>Sign In</h2>
+          <p>Welcome back to the forum</p>
         </div>
         <div class="auth-error" id="authError"></div>
         <form id="loginForm">
           <div class="form-group">
             <label for="loginEmail"><i class="fas fa-envelope"></i> Email</label>
-            <input type="email" id="loginEmail" class="form-input" placeholder="admin@example.com" required autocomplete="email">
+            <input type="email" id="loginEmail" class="form-input" placeholder="you@example.com" required autocomplete="email">
           </div>
           <div class="form-group">
             <label for="loginPassword"><i class="fas fa-lock"></i> Password</label>
             <input type="password" id="loginPassword" class="form-input" placeholder="Enter password" required autocomplete="current-password">
           </div>
           <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;" id="loginBtn">
-            <i class="fas fa-shield-halved"></i> Authenticate
+            <i class="fas fa-shield-halved"></i> Sign In
           </button>
         </form>
+        <div style="text-align:center;margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color);">
+          <p style="color:var(--text-muted);font-size:0.9rem;">Don't have an account? <a href="#/register" style="color:var(--accent-cyan);">Register here</a></p>
+        </div>
       </div>
     `;
 
@@ -351,17 +366,99 @@
       const btn = $('loginBtn');
       const err = $('authError');
       btn.disabled = true;
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Authenticating...';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
       err.style.display = 'none';
 
       auth.signInWithEmailAndPassword(email, password)
-        .then(() => { toast('Access granted', 'success'); router.navigate('/admin'); })
+        .then(() => { toast('Welcome back!', 'success'); router.navigate('/forum'); })
         .catch(e => {
           err.style.display = 'block';
           err.textContent = e.code === 'auth/user-not-found' || e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential'
-            ? 'Invalid credentials. Access denied.' : e.message;
+            ? 'Invalid email or password.' : e.message;
           btn.disabled = false;
-          btn.innerHTML = '<i class="fas fa-shield-halved"></i> Authenticate';
+          btn.innerHTML = '<i class="fas fa-shield-halved"></i> Sign In';
+        });
+    });
+  }
+
+  // === REGISTER ===
+  function renderRegister(main) {
+    if (currentUser) {
+      router.navigate('/forum');
+      return;
+    }
+    main.innerHTML = `
+      <div class="auth-container">
+        <div class="auth-header">
+          <div class="auth-icon"><i class="fas fa-user-plus"></i></div>
+          <h2>Create Account</h2>
+          <p>Join the cybersecurity community</p>
+        </div>
+        <div class="auth-error" id="regError"></div>
+        <form id="registerForm">
+          <div class="form-group">
+            <label for="regName"><i class="fas fa-user"></i> Display Name</label>
+            <input type="text" id="regName" class="form-input" placeholder="Your forum username" required>
+          </div>
+          <div class="form-group">
+            <label for="regEmail"><i class="fas fa-envelope"></i> Email</label>
+            <input type="email" id="regEmail" class="form-input" placeholder="you@example.com" required autocomplete="email">
+          </div>
+          <div class="form-group">
+            <label for="regPassword"><i class="fas fa-lock"></i> Password</label>
+            <input type="password" id="regPassword" class="form-input" placeholder="Min 6 characters" required minlength="6" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="regConfirm"><i class="fas fa-check"></i> Confirm Password</label>
+            <input type="password" id="regConfirm" class="form-input" placeholder="Repeat password" required autocomplete="new-password">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;" id="regBtn">
+            <i class="fas fa-user-plus"></i> Create Account
+          </button>
+        </form>
+        <div style="text-align:center;margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color);">
+          <p style="color:var(--text-muted);font-size:0.9rem;">Already have an account? <a href="#/login" style="color:var(--accent-cyan);">Sign in</a></p>
+        </div>
+      </div>
+    `;
+
+    $('registerForm').addEventListener('submit', e => {
+      e.preventDefault();
+      const name = $('regName').value.trim();
+      const email = $('regEmail').value.trim();
+      const password = $('regPassword').value;
+      const confirm = $('regConfirm').value;
+      const btn = $('regBtn');
+      const err = $('regError');
+      err.style.display = 'none';
+
+      if (!name) { err.textContent = 'Display name is required.'; err.style.display = 'block'; return; }
+      if (password !== confirm) { err.textContent = 'Passwords do not match.'; err.style.display = 'block'; return; }
+      if (password.length < 6) { err.textContent = 'Password must be at least 6 characters.'; err.style.display = 'block'; return; }
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating account...';
+
+      auth.createUserWithEmailAndPassword(email, password)
+        .then(cred => {
+          return db.collection('profiles').doc(cred.user.uid).set({
+            displayName: name,
+            email: email,
+            role: ADMIN_EMAILS.includes(email) ? 'admin' : 'user',
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+        })
+        .then(() => {
+          toast('Account created! Welcome!', 'success');
+          router.navigate('/forum');
+        })
+        .catch(e => {
+          err.style.display = 'block';
+          if (e.code === 'auth/email-already-in-use') err.textContent = 'This email is already registered.';
+          else if (e.code === 'auth/weak-password') err.textContent = 'Password is too weak.';
+          else err.textContent = e.message;
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
         });
     });
   }
@@ -389,22 +486,25 @@
   }
 
   function loadBlogPosts(category = 'all') {
-    let query = dbx.blog.where('published', '==', true).orderBy('createdAt', 'desc');
-    if (category !== 'all') query = query.where('category', '==', category);
-
-    query.get()
-      .then(snap => {
+    dbx.blog.get().then(snap => {
         const container = $('blogList');
         if (!container) return;
-        if (snap.empty) {
+        let posts = [];
+        snap.forEach(doc => {
+          const p = doc.data();
+          if (!p.published) return;
+          if (category !== 'all' && p.category !== category) return;
+          posts.push({ id: doc.id, data: p });
+        });
+        posts.sort((a, b) => (b.data.createdAt?.seconds || 0) - (a.data.createdAt?.seconds || 0));
+        if (!posts.length) {
           container.innerHTML = '<div class="no-posts"><i class="fas fa-feather-alt"></i><p>No posts in this category yet.</p></div>';
           return;
         }
         let html = '';
-        snap.forEach(doc => {
-          const p = doc.data();
+        posts.forEach(({ id, data: p }) => {
           html += `
-            <div class="blog-card" onclick="router.navigate('/blog/${doc.id}')">
+            <div class="blog-card" onclick="router.navigate('/blog/${id}')">
               <div class="card-category" style="color:${getCategoryColor(p.category)};border:1px solid ${getCategoryColor(p.category)}">${esc(p.category || 'General')}</div>
               <h3>${esc(p.title)}</h3>
               <p>${esc(p.excerpt || p.content?.slice(0, 200) || '')}</p>
@@ -416,7 +516,8 @@
         });
         container.innerHTML = html;
       })
-      .catch(() => {
+      .catch(e => {
+        console.error('blogPosts:', e);
         const container = $('blogList');
         if (container) container.innerHTML = '<div class="no-posts"><i class="fas fa-exclamation-triangle"></i><p>Failed to load posts.</p></div>';
       });
@@ -474,29 +575,54 @@
 
   // === VIDEOS ===
   function renderVideos(main) {
+    const catFilter = allVideoCategories.length
+      ? `<div class="category-filter" id="videoFilter">
+          <button class="filter-btn active" data-cat="all">All</button>
+          ${allVideoCategories.map(c => `<button class="filter-btn" data-cat="${esc(c.id)}">${esc(c.name)}</button>`).join('')}
+        </div>`
+      : '';
+
     main.innerHTML = `
       <div class="page-header">
         <div class="header-icon"><i class="fas fa-video"></i></div>
         <h1>Video Library</h1>
         <p>Security talks, tutorials, and walkthroughs</p>
       </div>
+      ${catFilter}
       <div class="video-grid" id="videoList">${renderSkeleton(4)}</div>
     `;
+
+    const filterContainer = $('videoFilter');
+    if (filterContainer) {
+      filterContainer.addEventListener('click', e => {
+        const btn = e.target.closest('.filter-btn');
+        if (!btn) return;
+        qq('.filter-btn', filterContainer).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        loadVideos(btn.dataset.cat);
+      });
+    }
+
     loadVideos();
   }
 
-  function loadVideos() {
-    dbx.videos.orderBy('createdAt', 'desc').get()
-      .then(snap => {
+  function loadVideos(category = 'all') {
+    dbx.videos.get().then(snap => {
         const container = $('videoList');
         if (!container) return;
-        if (snap.empty) {
+        let videos = [];
+        snap.forEach(doc => {
+          const v = doc.data();
+          if (category !== 'all' && v.category !== category) return;
+          videos.push({ id: doc.id, data: v });
+        });
+        videos.sort((a, b) => (b.data.createdAt?.seconds || 0) - (a.data.createdAt?.seconds || 0));
+        if (!videos.length) {
           container.innerHTML = '<div class="no-posts"><i class="fas fa-video"></i><p>No videos yet.</p></div>';
           return;
         }
         let html = '';
-        snap.forEach(doc => {
-          const v = doc.data();
+        videos.forEach(({ data: v }) => {
           const embed = getEmbedUrl(v.url);
           html += `
             <div class="video-card">
@@ -515,7 +641,8 @@
         });
         container.innerHTML = html;
       })
-      .catch(() => {
+      .catch(e => {
+        console.error('videos:', e);
         const c = $('videoList');
         if (c) c.innerHTML = '<div class="no-posts"><i class="fas fa-exclamation-triangle"></i><p>Failed to load videos.</p></div>';
       });
@@ -557,11 +684,11 @@
         <div class="stat-card"><div class="stat-value">${replies.size}</div><div class="stat-label">Replies</div></div>
         <div class="stat-card"><div class="stat-value">--</div><div class="stat-label">Members</div></div>
       `;
-    }).catch(() => {});
+    }).catch(e => console.error('forumStats:', e));
   }
 
   function loadForumCategories() {
-    dbx.forumCategories.orderBy('order', 'asc').get()
+    dbx.forumCategories.get()
       .then(snap => {
         const container = $('forumCatList');
         if (!container) return;
@@ -618,20 +745,29 @@
   }
 
   function loadThreads(catId) {
-    dbx.forumThreads.where('categoryId', '==', catId).orderBy('isPinned', 'desc').orderBy('lastActivityAt', 'desc').get()
-      .then(snap => {
+    dbx.forumThreads.get().then(snap => {
         const container = $('threadList');
         if (!container) return;
-        if (snap.empty) {
+        let threads = [];
+        snap.forEach(doc => {
+          const t = doc.data();
+          if (t.categoryId !== catId) return;
+          threads.push({ id: doc.id, data: t });
+        });
+        threads.sort((a, b) => {
+          if (a.data.isPinned && !b.data.isPinned) return -1;
+          if (!a.data.isPinned && b.data.isPinned) return 1;
+          return (b.data.lastActivityAt?.seconds || 0) - (a.data.lastActivityAt?.seconds || 0);
+        });
+        if (!threads.length) {
           container.innerHTML = '<div class="no-posts"><i class="fas fa-comment"></i><p>No threads yet. Start the discussion!</p></div>';
           return;
         }
         let html = '';
-        snap.forEach(doc => {
-          const t = doc.data();
+        threads.forEach(({ id, data: t }) => {
           const cls = (t.isPinned ? 'pinned' : '') + (t.isLocked ? ' locked' : '');
           html += `
-            <div class="thread-item ${cls}" onclick="router.navigate('/forum/${catId}/${doc.id}')">
+            <div class="thread-item ${cls}" onclick="router.navigate('/forum/${catId}/${id}')">
               <div class="thread-icon"><i class="fas ${t.isPinned ? 'fa-thumbtack' : t.isLocked ? 'fa-lock' : 'fa-comment'}"></i></div>
               <div class="thread-info">
                 <h4>${esc(t.title)} ${t.isPinned ? '<span style="color:var(--accent-orange);font-size:0.75rem;">Pinned</span>' : ''}</h4>
@@ -649,7 +785,7 @@
         });
         container.innerHTML = html;
       })
-      .catch(() => {});
+      .catch(e => { console.error('threads:', e); });
   }
 
   function renderForumThread(main, catId, threadId) {
@@ -657,7 +793,7 @@
 
     Promise.all([
       dbx.forumThreads.doc(threadId).get(),
-      dbx.forumReplies.where('threadId', '==', threadId).orderBy('createdAt', 'asc').get(),
+      dbx.forumReplies.get(),
     ]).then(([threadDoc, repliesSnap]) => {
       if (!threadDoc.exists) { router.navigate(`/forum/${catId}`); return; }
       const t = threadDoc.data();
@@ -666,9 +802,16 @@
         dbx.forumThreads.doc(threadId).update({ views: (t.views || 0) + 1 }).catch(() => {});
       }
 
-      let repliesHtml = '';
+      let replies = [];
       repliesSnap.forEach(doc => {
         const r = doc.data();
+        if (r.threadId !== threadId) return;
+        replies.push({ id: doc.id, data: r });
+      });
+      replies.sort((a, b) => (a.data.createdAt?.seconds || 0) - (b.data.createdAt?.seconds || 0));
+
+      let repliesHtml = '';
+      replies.forEach(({ id: replyId, data: r }) => {
         const initial = (r.author || 'A')[0].toUpperCase();
         repliesHtml += `
           <div class="reply-item">
@@ -684,8 +827,8 @@
             </div>
             <div class="reply-content">${renderMarkdown(r.content)}</div>
             <div class="reply-actions">
-              ${currentUser ? `<button class="reply-action" onclick="window.openReply('${doc.id}')"><i class="fas fa-reply"></i> Reply</button>` : ''}
-              ${currentUser ? `<button class="reply-action" onclick="window.quoteReply('${doc.id}','${esc(r.author || 'Anonymous')}')"><i class="fas fa-quote-right"></i> Quote</button>` : ''}
+              ${currentUser ? `<button class="reply-action" onclick="window.openReply('${replyId}')"><i class="fas fa-reply"></i> Reply</button>` : ''}
+              ${currentUser ? `<button class="reply-action" onclick="window.quoteReply('${replyId}','${esc(r.author || 'Anonymous')}')"><i class="fas fa-quote-right"></i> Quote</button>` : ''}
             </div>
           </div>`;
       });
@@ -820,6 +963,19 @@
       `;
       return;
     }
+    if (currentUserRole !== 'admin') {
+      main.innerHTML = `
+        <div class="auth-container" style="text-align:center;">
+          <div class="auth-header">
+            <div class="auth-icon"><i class="fas fa-crown" style="color:var(--accent-orange);"></i></div>
+            <h2>Admin Only</h2>
+            <p style="color:var(--text-muted);">This area is restricted to administrators.</p>
+          </div>
+          <a class="btn btn-secondary" href="#/forum"><i class="fas fa-comments"></i> Go to Forum</a>
+        </div>
+      `;
+      return;
+    }
 
     const hash = window.location.hash.replace('#/admin', '') || '/dashboard';
     const section = hash.split('?')[0];
@@ -883,7 +1039,8 @@
       <div class="admin-stats" id="adminStats">
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-feather-alt"></i></div><div class="stat-number">--</div><div class="stat-desc">Blog Posts</div></div>
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-video"></i></div><div class="stat-number">--</div><div class="stat-desc">Videos</div></div>
-        <div class="admin-stat"><div class="stat-icon"><i class="fas fa-tags"></i></div><div class="stat-number">--</div><div class="stat-desc">Categories</div></div>
+        <div class="admin-stat"><div class="stat-icon"><i class="fas fa-tags"></i></div><div class="stat-number">--</div><div class="stat-desc">Blog Categories</div></div>
+        <div class="admin-stat"><div class="stat-icon"><i class="fas fa-film"></i></div><div class="stat-number">--</div><div class="stat-desc">Video Categories</div></div>
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-comments"></i></div><div class="stat-number">--</div><div class="stat-desc">Forum Threads</div></div>
         <div class="admin-stat"><div class="stat-icon"><i class="fas fa-reply"></i></div><div class="stat-number">--</div><div class="stat-desc">Forum Replies</div></div>
       </div>
@@ -896,18 +1053,19 @@
     `;
 
     setTimeout(() => {
-      Promise.all([dbx.blog.get(), dbx.videos.get(), dbx.blogCategories.get(), dbx.forumThreads.get(), dbx.forumReplies.get()])
-        .then(([b, v, bc, ft, fr]) => {
+      Promise.all([dbx.blog.get(), dbx.videos.get(), dbx.blogCategories.get(), dbx.videoCategories.get(), dbx.forumThreads.get(), dbx.forumReplies.get()])
+        .then(([b, v, bc, vc, ft, fr]) => {
           const c = $('adminStats');
           if (!c) return;
           c.innerHTML = `
             <div class="admin-stat"><div class="stat-icon"><i class="fas fa-feather-alt"></i></div><div class="stat-number">${b.size}</div><div class="stat-desc">Blog Posts</div></div>
             <div class="admin-stat"><div class="stat-icon"><i class="fas fa-video"></i></div><div class="stat-number">${v.size}</div><div class="stat-desc">Videos</div></div>
-            <div class="admin-stat"><div class="stat-icon"><i class="fas fa-tags"></i></div><div class="stat-number">${bc.size}</div><div class="stat-desc">Categories</div></div>
+            <div class="admin-stat"><div class="stat-icon"><i class="fas fa-tags"></i></div><div class="stat-number">${bc.size}</div><div class="stat-desc">Blog Categories</div></div>
+            <div class="admin-stat"><div class="stat-icon"><i class="fas fa-film"></i></div><div class="stat-number">${vc.size}</div><div class="stat-desc">Video Categories</div></div>
             <div class="admin-stat"><div class="stat-icon"><i class="fas fa-comments"></i></div><div class="stat-number">${ft.size}</div><div class="stat-desc">Forum Threads</div></div>
             <div class="admin-stat"><div class="stat-icon"><i class="fas fa-reply"></i></div><div class="stat-number">${fr.size}</div><div class="stat-desc">Forum Replies</div></div>
           `;
-        }).catch(() => {});
+        }).catch(e => console.error('adminStats:', e));
     }, 200);
 
     return html;
@@ -957,7 +1115,8 @@
         });
         body.innerHTML = html;
       })
-      .catch(() => {
+      .catch(e => {
+        console.error('adminBlog:', e);
         const b = $('adminBlogBody');
         if (b) b.innerHTML = '<tr><td colspan="5" class="table-empty"><i class="fas fa-exclamation-triangle"></i> Failed to load.</td></tr>';
       });
@@ -1165,7 +1324,7 @@
         });
         body.innerHTML = html;
       })
-      .catch(() => {});
+      .catch(e => { console.error('adminVideos:', e); });
   }
 
   window.deleteVideo = function(id) {
@@ -1204,11 +1363,7 @@
                 <label for="videoCategory">Category</label>
                 <select class="form-select" id="videoCategory">
                   <option value="">Select...</option>
-                  ${allBlogCategories.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
-                  <option value="Tutorial">Tutorial</option>
-                  <option value="Walkthrough">Walkthrough</option>
-                  <option value="Talk">Talk</option>
-                  <option value="Tool Demo">Tool Demo</option>
+                  ${allVideoCategories.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
                 </select>
               </div>
             </div>
@@ -1276,18 +1431,26 @@
     let html = `
       <div class="admin-header">
         <h2><i class="fas fa-tags"></i> Categories</h2>
-        <button class="btn btn-primary btn-sm" onclick="showCategoryModal()"><i class="fas fa-plus"></i> New Category</button>
+        <button class="btn btn-primary btn-sm" onclick="showCategoryModal()"><i class="fas fa-plus"></i> New Blog Category</button>
+        <button class="btn btn-primary btn-sm" onclick="showCategoryModal(null,'video')"><i class="fas fa-plus"></i> New Video Category</button>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;">
         <div>
-          <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;">Blog Categories</h3>
+          <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;"><i class="fas fa-feather-alt"></i> Blog</h3>
           <table class="admin-table">
             <thead><tr><th>Name</th><th>Posts</th><th>Actions</th></tr></thead>
             <tbody id="adminBlogCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
           </table>
         </div>
         <div>
-          <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;">Forum Categories</h3>
+          <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;"><i class="fas fa-video"></i> Videos</h3>
+          <table class="admin-table">
+            <thead><tr><th>Name</th><th>Count</th><th>Actions</th></tr></thead>
+            <tbody id="adminVideoCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
+          </table>
+        </div>
+        <div>
+          <h3 style="font-family:var(--font-mono);font-size:1rem;margin-bottom:16px;"><i class="fas fa-comments"></i> Forum</h3>
           <table class="admin-table">
             <thead><tr><th>Name</th><th>Threads</th><th>Actions</th></tr></thead>
             <tbody id="adminForumCatBody"><tr><td colspan="3" class="table-empty"><i class="fas fa-spinner fa-spin"></i></td></tr></tbody>
@@ -1295,7 +1458,7 @@
         </div>
       </div>
     `;
-    setTimeout(() => { loadAdminBlogCategories(); loadAdminForumCategories(); }, 200);
+    setTimeout(() => { loadAdminBlogCategories(); loadAdminVideoCategories(); loadAdminForumCategories(); }, 200);
     return html;
   }
 
@@ -1312,6 +1475,24 @@
         snap.forEach(doc => {
           const c = doc.data();
           html += `<tr><td><span style="color:${getCategoryColor(doc.id)}">${esc(c.name)}</span></td><td>${c.postCount || 0}</td><td class="actions"><button class="btn btn-sm btn-secondary" onclick="showCategoryModal('${doc.id}','blog')" title="Edit"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger" onclick="deleteCategory('${doc.id}','blog')" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`;
+        });
+        body.innerHTML = html;
+      });
+  }
+
+  function loadAdminVideoCategories() {
+    dbx.videoCategories.orderBy('order', 'asc').get()
+      .then(snap => {
+        const body = $('adminVideoCatBody');
+        if (!body) return;
+        if (snap.empty) {
+          body.innerHTML = '<tr><td colspan="3" class="table-empty">No categories</td></tr>';
+          return;
+        }
+        let html = '';
+        snap.forEach(doc => {
+          const c = doc.data();
+          html += `<tr><td><span style="color:${getCategoryColor(doc.id)}">${esc(c.name)}</span></td><td>${c.count || 0}</td><td class="actions"><button class="btn btn-sm btn-secondary" onclick="showCategoryModal('${doc.id}','video')" title="Edit"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-danger" onclick="deleteCategory('${doc.id}','video')" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`;
         });
         body.innerHTML = html;
       });
@@ -1337,12 +1518,13 @@
 
   window.showCategoryModal = function(id = null, type = 'blog') {
     const isEdit = !!id;
+    const typeLabel = { blog: 'Blog', video: 'Video', forum: 'Forum' }[type] || 'Blog';
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay open';
     overlay.innerHTML = `
       <div class="modal" style="max-width:500px;">
         <div class="modal-header">
-          <h3><i class="fas ${isEdit ? 'fa-edit' : 'fa-plus'}"></i> ${isEdit ? 'Edit' : 'New'} ${type === 'blog' ? 'Blog' : 'Forum'} Category</h3>
+          <h3><i class="fas ${isEdit ? 'fa-edit' : 'fa-plus'}"></i> ${isEdit ? 'Edit' : 'New'} ${typeLabel} Category</h3>
           <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
         </div>
         <div class="modal-body">
@@ -1367,8 +1549,10 @@
     document.body.appendChild(overlay);
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 
+    const colMap = { blog: dbx.blogCategories, video: dbx.videoCategories, forum: dbx.forumCategories };
+    const col = colMap[type] || dbx.blogCategories;
+
     if (isEdit) {
-      const col = type === 'blog' ? dbx.blogCategories : dbx.forumCategories;
       col.doc(id).get().then(doc => {
         if (!doc.exists) { overlay.remove(); return; }
         const c = doc.data();
@@ -1382,7 +1566,8 @@
       e.preventDefault();
       const name = $('catName').value.trim();
       if (!name) { toast('Name is required', 'error'); return; }
-      const col = overlay.querySelector('#catForm').dataset.type === 'blog' ? dbx.blogCategories : dbx.forumCategories;
+      const ctype = overlay.querySelector('#catForm').dataset.type;
+      const ccol = colMap[ctype] || dbx.blogCategories;
       const data = { name, description: $('catDesc').value.trim(), order: parseInt($('catOrder').value) || 0, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
 
       const btn = $('saveCatBtn');
@@ -1390,12 +1575,12 @@
       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
 
       if (isEdit) {
-        col.doc(id).update(data)
-          .then(() => { toast('Category updated!', 'success'); overlay.remove(); loadAdminBlogCategories(); loadAdminForumCategories(); })
+        ccol.doc(id).update(data)
+          .then(() => { toast('Category updated!', 'success'); overlay.remove(); refreshAllCategories(); loadAdminBlogCategories(); loadAdminVideoCategories(); loadAdminForumCategories(); })
           .catch(e => { toast('Failed: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Update Category'; });
       } else {
-        col.add({ ...data, postCount: 0, threadCount: 0, createdAt: firebase.firestore.FieldValue.serverTimestamp() })
-          .then(() => { toast('Category created!', 'success'); overlay.remove(); loadAdminBlogCategories(); loadAdminForumCategories(); })
+        ccol.add({ ...data, count: 0, postCount: 0, threadCount: 0, createdAt: firebase.firestore.FieldValue.serverTimestamp() })
+          .then(() => { toast('Category created!', 'success'); overlay.remove(); refreshAllCategories(); loadAdminBlogCategories(); loadAdminVideoCategories(); loadAdminForumCategories(); })
           .catch(e => { toast('Failed: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Create Category'; });
       }
     });
@@ -1403,13 +1588,14 @@
 
   window.deleteCategory = function(id, type) {
     if (!confirm(`Delete this ${type} category?`)) return;
-    const col = type === 'blog' ? dbx.blogCategories : dbx.forumCategories;
+    const colMap = { blog: dbx.blogCategories, video: dbx.videoCategories, forum: dbx.forumCategories };
+    const col = colMap[type] || dbx.blogCategories;
     col.doc(id).delete()
-      .then(() => { toast('Category deleted', 'success'); loadAdminBlogCategories(); loadAdminForumCategories(); })
+      .then(() => { toast('Category deleted', 'success'); refreshAllCategories(); loadAdminBlogCategories(); loadAdminVideoCategories(); loadAdminForumCategories(); })
       .catch(e => toast('Failed: ' + e.message, 'error'));
   };
 
-  function attachCategoryHandlers() { loadAdminBlogCategories(); loadAdminForumCategories(); }
+  function attachCategoryHandlers() { loadAdminBlogCategories(); loadAdminVideoCategories(); loadAdminForumCategories(); }
 
   // === ADMIN FORUM ===
   function adminForum() {
@@ -1453,7 +1639,7 @@
           </tr>`;
         });
         body.innerHTML = html;
-      });
+      }).catch(e => console.error('adminForum:', e));
   }
 
   window.togglePin = function(id, pin) {
@@ -1493,28 +1679,57 @@
       currentUser = user;
       const loginLink = $('loginLink');
       const adminLink = $('adminLink');
+      const registerLink = $('registerLink');
+
       if (user) {
-        if (loginLink) loginLink.innerHTML = '<i class="fas fa-user-shield"></i> ' + esc(user.email?.split('@')[0] || 'Admin');
-        if (adminLink) adminLink.style.display = 'flex';
+        db.collection('profiles').doc(user.uid).get().then(doc => {
+          if (doc.exists) {
+            currentUserRole = doc.data().role || 'user';
+          } else {
+            const role = ADMIN_EMAILS.includes(user.email) ? 'admin' : 'user';
+            db.collection('profiles').doc(user.uid).set({
+              displayName: user.email?.split('@')[0] || 'User',
+              email: user.email,
+              role: role,
+              createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            currentUserRole = role;
+          }
+          if (loginLink) loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User');
+          if (registerLink) registerLink.style.display = 'none';
+          if (adminLink) {
+            if (currentUserRole === 'admin') adminLink.style.display = 'flex';
+            else adminLink.style.display = 'none';
+          }
+        });
       } else {
-        if (loginLink) loginLink.innerHTML = '<i class="fas fa-user-shield"></i> Login';
+        currentUserRole = null;
+        if (loginLink) loginLink.innerHTML = '<i class="fas fa-sign-in-alt"></i> Login';
+        if (registerLink) registerLink.style.display = '';
         if (adminLink) adminLink.style.display = 'none';
       }
-      if (currentRoute.startsWith('/admin') && !user) {
-        router.navigate('/login');
+      if (currentRoute.startsWith('/admin') && (!user || currentUserRole !== 'admin')) {
+        if (!user) router.navigate('/login');
+        else router.navigate('/forum');
       }
     });
   }
 
+  function refreshAllCategories() {
+    dbx.blogCategories.get()
+      .then(snap => { allBlogCategories = []; snap.forEach(d => allBlogCategories.push({ id: d.id, ...d.data() })); })
+      .catch(e => console.error('cat blog:', e));
+    dbx.videoCategories.get()
+      .then(snap => { allVideoCategories = []; snap.forEach(d => allVideoCategories.push({ id: d.id, ...d.data() })); })
+      .catch(e => console.error('cat video:', e));
+    dbx.forumCategories.get()
+      .then(snap => { allForumCategories = []; snap.forEach(d => allForumCategories.push({ id: d.id, ...d.data() })); })
+      .catch(e => console.error('cat forum:', e));
+  }
+
   // === LOAD INITIAL DATA ===
   function loadInitialData() {
-    dbx.blogCategories.orderBy('order', 'asc').get()
-      .then(snap => { allBlogCategories = []; snap.forEach(d => allBlogCategories.push({ id: d.id, ...d.data() })); })
-      .catch(() => {});
-
-    dbx.forumCategories.orderBy('order', 'asc').get()
-      .then(snap => { allForumCategories = []; snap.forEach(d => allForumCategories.push({ id: d.id, ...d.data() })); })
-      .catch(() => {});
+    refreshAllCategories();
   }
 
   // === INIT ===
