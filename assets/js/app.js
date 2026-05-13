@@ -1122,6 +1122,8 @@
       let repliesUnsub = null;
       try {
         repliesUnsub = repliesQuery.onSnapshot(snap => {
+          // mark realtime available
+          window._realtimeRepliesAvailable = true;
           let repliesHtml = '';
           if (snap.empty) {
             repliesHtml = '<div class="no-posts" style="padding:20px;"><i class="fas fa-comment"></i><p>No replies yet. Be the first to respond.</p></div>';
@@ -1187,9 +1189,70 @@
           window._repliesInitialLoaded = true;
         }, err => {
           console.error('repliesListener:', err);
+          // realtime failed — fall back to a one-time load
+          window._realtimeRepliesAvailable = false;
           const container = $('repliesContainer');
-          if (container) container.innerHTML = '<div class="no-posts" style="padding:20px;color:var(--text-muted);"><i class="fas fa-exclamation-triangle"></i><p>Failed to load replies.</p></div>';
-          toast('Failed to load replies: ' + (err && err.message ? err.message : 'unknown'), 'error');
+          if (container) container.innerHTML = '<div class="loading-screen"><div class="loader"></div><p>Loading replies...</p></div>';
+          dbx.forumReplies.where('threadId','==',threadId).get().then(fallbackSnap => {
+            // collect and sort client-side to avoid requiring a composite index
+            const repliesArr = [];
+            fallbackSnap.forEach(doc => repliesArr.push({ id: doc.id, data: doc.data() }));
+            repliesArr.sort((a, b) => (a.data.createdAt?.seconds || 0) - (b.data.createdAt?.seconds || 0));
+
+            let repliesHtml = '';
+            if (!repliesArr.length) {
+              repliesHtml = '<div class="no-posts" style="padding:20px;"><i class="fas fa-comment"></i><p>No replies yet. Be the first to respond.</p></div>';
+            } else {
+              repliesArr.forEach(item => {
+                const docId = item.id;
+                const r = item.data;
+                let authorHtml = '';
+                if (r.authorId && profiles[r.authorId]) {
+                  const p = profiles[r.authorId];
+                  const avatar = p.avatar ? `<div class="avatar"><img src="${esc(p.avatar)}" alt="${esc(p.displayName || r.author || 'User')}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;"/></div>` : `<div class="avatar">${esc((p.displayName||r.author||'A').charAt(0).toUpperCase())}</div>`;
+                  const roleLabel = p.role === 'admin' ? 'Administrator' : 'Member';
+                  authorHtml = `
+                    <div class="reply-author">
+                      ${avatar}
+                      <div>
+                        <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || p.displayName || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
+                        <div class="role">${roleLabel}</div>
+                      </div>
+                    </div>`;
+                } else {
+                  const initial = (r.author || 'A')[0].toUpperCase();
+                  authorHtml = `
+                    <div class="reply-author">
+                      <div class="avatar">${esc(initial)}</div>
+                      <div>
+                        <div class="name">${r.authorId ? `<a href="#/profile/${esc(r.authorId)}" style="color:var(--text-primary);text-decoration:none;">${esc(r.author || 'Anonymous')}</a>` : esc(r.author || 'Anonymous')}</div>
+                        <div class="role">${r.authorId ? 'Member' : 'Guest'}</div>
+                      </div>
+                    </div>`;
+                }
+
+                repliesHtml += `
+                  <div class="reply-item" data-reply-id="${esc(docId)}">
+                    <div class="reply-header">
+                      ${authorHtml}
+                      <div class="reply-date">${formatDateFull(r.createdAt)}</div>
+                    </div>
+                    <div class="reply-content">${renderMarkdown(r.content)}</div>
+                    <div class="reply-actions">
+                      ${currentUser ? `<button class="reply-action" onclick="window.openReply('${esc(docId)}')"><i class="fas fa-reply"></i> Reply</button>` : ''}
+                      ${currentUser ? `<button class="reply-action" onclick="window.quoteReply('${esc(docId)}','${esc(r.author || 'Anonymous')}')"><i class="fas fa-quote-right"></i> Quote</button>` : ''}
+                    </div>
+                  </div>`;
+              });
+            }
+            if (container) container.innerHTML = repliesHtml;
+            highlightCode();
+            window._repliesInitialLoaded = true;
+          }).catch(ferr => {
+            console.error('repliesFallback:', ferr);
+            if (container) container.innerHTML = '<div class="no-posts" style="padding:20px;color:var(--text-muted);"><i class="fas fa-exclamation-triangle"></i><p>Failed to load replies.</p></div>';
+            toast('Failed to load replies: ' + (ferr && ferr.message ? ferr.message : 'unknown'), 'error');
+          });
         });
       } catch(e) {
         console.error('repliesListenerSetup:', e);
@@ -1235,7 +1298,26 @@
 
             dbx.forumReplies.add({ threadId, content, author: getDisplayName(), authorId: currentUser.uid || '', createdAt: firebase.firestore.FieldValue.serverTimestamp(), updatedAt: firebase.firestore.FieldValue.serverTimestamp() })
               .then(() => dbx.forumThreads.doc(threadId).update({ replies: firebase.firestore.FieldValue.increment(1), lastActivityAt: firebase.firestore.FieldValue.serverTimestamp() }))
-              .then(() => { toast('Reply posted!', 'success'); contentEl.value = ''; btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post Reply'; })
+              .then(() => { toast('Reply posted!', 'success'); contentEl.value = ''; btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post Reply';
+                // if realtime isn't available, refresh replies once so the newly added reply becomes visible
+                if (!window._realtimeRepliesAvailable) {
+                  dbx.forumReplies.where('threadId','==',threadId).orderBy('createdAt','asc').get().then(snapAfter => {
+                    const container = $('repliesContainer');
+                    let html = '';
+                    if (snapAfter.empty) html = '<div class="no-posts" style="padding:20px;"><i class="fas fa-comment"></i><p>No replies yet. Be the first to respond.</p></div>';
+                    else {
+                      snapAfter.forEach(doc => {
+                        const r = doc.data();
+                        const author = r.author || 'Anonymous';
+                        const initial = (r.author || 'A')[0].toUpperCase();
+                        html += `<div class="reply-item" data-reply-id="${esc(doc.id)}"><div class="reply-header"><div class="reply-author"><div class="avatar">${esc(initial)}</div><div><div class="name">${esc(author)}</div><div class="role">${r.authorId ? 'Member' : 'Guest'}</div></div></div><div class="reply-date">${formatDateFull(r.createdAt)}</div></div><div class="reply-content">${renderMarkdown(r.content)}</div></div>`;
+                      });
+                    }
+                    if (container) container.innerHTML = html;
+                    highlightCode();
+                  }).catch(() => {});
+                }
+              })
               .catch(e => { toast('Failed to post reply: ' + e.message, 'error'); btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post Reply'; });
           });
         }
@@ -1856,6 +1938,7 @@
         <h2><i class="fas fa-tags"></i> Categories</h2>
         <button class="btn btn-primary btn-sm" onclick="showCategoryModal()"><i class="fas fa-plus"></i> New Blog Category</button>
         <button class="btn btn-primary btn-sm" onclick="showCategoryModal(null,'video')"><i class="fas fa-plus"></i> New Video Category</button>
+        <button class="btn btn-primary btn-sm" onclick="showCategoryModal(null,'forum')"><i class="fas fa-plus"></i> New Forum Category</button>
       </div>
       <div class="admin-category-grid">
         <div>
