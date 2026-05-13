@@ -1877,17 +1877,21 @@
 
       if (user) {
         db.collection('profiles').doc(user.uid).get().then(doc => {
+          const expectedRole = ADMIN_EMAILS.includes(user.email) ? 'admin' : 'user';
           if (doc.exists) {
             currentUserRole = doc.data().role || 'user';
+            if (currentUserRole !== expectedRole) {
+              db.collection('profiles').doc(user.uid).update({ role: expectedRole }).catch(() => {});
+              currentUserRole = expectedRole;
+            }
           } else {
-            const role = ADMIN_EMAILS.includes(user.email) ? 'admin' : 'user';
             db.collection('profiles').doc(user.uid).set({
               displayName: user.email?.split('@')[0] || 'User',
               email: user.email,
-              role: role,
+              role: expectedRole,
               createdAt: firebase.firestore.FieldValue.serverTimestamp()
             }).catch(() => {});
-            currentUserRole = role;
+            currentUserRole = expectedRole;
           }
           if (loginLink) loginLink.innerHTML = '<i class="fas fa-user"></i> ' + esc(user.email?.split('@')[0] || 'User');
           if (registerLink) registerLink.style.display = 'none';
