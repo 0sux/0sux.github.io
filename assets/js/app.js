@@ -192,6 +192,28 @@
     return getDisplayName(profile, user).charAt(0).toUpperCase() || 'U';
   }
 
+  function getSafeImageUrl(url) {
+    const value = (url || '').trim();
+    if (!value) return '';
+    return /^https?:\/\//i.test(value) ? value : '';
+  }
+
+  function renderAvatar(profile = currentUserProfile, user = currentUser, className = 'profile-avatar') {
+    const avatarUrl = getSafeImageUrl(profile?.avatar);
+    const initial = esc(getUserInitial(profile, user));
+    if (!avatarUrl) return `<div class="${className}">${initial}</div>`;
+    return `<div class="${className} profile-avatar-image-wrap"><img src="${esc(avatarUrl)}" alt="${esc(getDisplayName(profile, user))}" class="profile-avatar-image"></div>`;
+  }
+
+  function renderForumCategoryMedia(category, index) {
+    const imageUrl = getSafeImageUrl(category?.imageUrl);
+    if (imageUrl) {
+      return `<div class="cat-icon cat-image"><img src="${esc(imageUrl)}" alt="${esc(category.name || 'Category')}" class="cat-image-img"></div>`;
+    }
+    const icons = ['fa-shield-halved', 'fa-bug', 'fa-network-wired', 'fa-microchip', 'fa-key', 'fa-user-secret', 'fa-lock', 'fa-code'];
+    return `<div class="cat-icon"><i class="fas ${icons[index % icons.length]}"></i></div>`;
+  }
+
   function isBootstrapAdminEmail(email) {
     return adminEmailSet.has(normalizeEmail(email));
   }
@@ -906,13 +928,12 @@
           container.innerHTML = '<div class="no-posts"><i class="fas fa-comments"></i><p>No categories yet.</p></div>';
           return;
         }
-        const icons = ['fa-shield-halved', 'fa-bug', 'fa-network-wired', 'fa-microchip', 'fa-key', 'fa-user-secret', 'fa-lock', 'fa-code'];
         let html = '';
         snap.forEach((doc, i) => {
           const c = doc.data();
           html += `
             <div class="forum-category" onclick="router.navigate('/forum/${doc.id}')">
-              <div class="cat-icon"><i class="fas ${icons[i % icons.length]}"></i></div>
+              ${renderForumCategoryMedia(c, i)}
               <div class="cat-info">
                 <h3>${esc(c.name)}</h3>
                 <p>${esc(c.description || '')}</p>
@@ -1794,6 +1815,10 @@
               <label for="catOrder">Order</label>
               <input type="number" class="form-input" id="catOrder" value="0" min="0">
             </div>
+            <div class="form-group" id="forumCategoryImageField" style="${type === 'forum' ? '' : 'display:none;'}">
+              <label for="catImageUrl">Forum Category Image URL</label>
+              <input type="url" class="form-input" id="catImageUrl" placeholder="https://example.com/category-image.jpg">
+            </div>
             <button type="submit" class="btn btn-primary" id="saveCatBtn"><i class="fas fa-save"></i> ${isEdit ? 'Update' : 'Create'} Category</button>
           </form>
         </div>
@@ -1812,6 +1837,8 @@
         $('catName').value = c.name || '';
         $('catDesc').value = c.description || '';
         $('catOrder').value = c.order || 0;
+        const imageField = $('catImageUrl');
+        if (imageField) imageField.value = c.imageUrl || '';
       });
     }
 
@@ -1822,6 +1849,9 @@
       const ctype = overlay.querySelector('#catForm').dataset.type;
       const ccol = colMap[ctype] || dbx.blogCategories;
       const data = { name, description: $('catDesc').value.trim(), order: parseInt($('catOrder').value) || 0, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+      if (ctype === 'forum') {
+        data.imageUrl = $('catImageUrl').value.trim();
+      }
 
       const btn = $('saveCatBtn');
       btn.disabled = true;
@@ -1948,7 +1978,7 @@
 
           <div class="profile-hero-card">
             <div class="profile-hero-bg"></div>
-            <div class="profile-avatar">${esc(initial)}</div>
+            ${renderAvatar(p, currentUser)}
             <h2 class="profile-name">${esc(getDisplayName(p, currentUser))}</h2>
             <p class="profile-email">${esc(p.email || '')}</p>
             <p class="profile-bio">${esc(p.bio || 'No bio yet.')}</p>
@@ -2018,11 +2048,13 @@
             </div>
           </div>
 
+          ${currentUserRole !== 'admin' ? `
           <div class="profile-section-card danger-zone">
             <h3 class="profile-section-title"><i class="fas fa-triangle-exclamation"></i> Danger Zone</h3>
             <p class="danger-zone-text">Delete your own account permanently. Your profile will be removed and your forum posts will be anonymized to protect the rest of the discussion history.</p>
             <button type="button" class="btn btn-danger" onclick="showDeleteAccount()"><i class="fas fa-user-slash"></i> Delete My Account</button>
           </div>
+          ` : ''}
 
         </div>`;
 
@@ -2077,7 +2109,7 @@
         <div class="profile-public-shell">
           <div class="profile-hero-card profile-public-card">
             <div class="profile-hero-bg"></div>
-            <div class="profile-avatar">${esc(initial)}</div>
+            ${renderAvatar(p)}
             <h2 class="profile-name">${esc(getDisplayName(p))}</h2>
             <p class="profile-bio">${esc(p.bio || '')}</p>
             ${p.role === 'admin' ? '<span class="admin-badge"><i class="fas fa-crown"></i> Administrator</span>' : ''}
