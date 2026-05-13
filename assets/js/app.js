@@ -224,6 +224,13 @@
     return dbx.publicProfiles.doc(uid).set(buildPublicProfileData(profile), { merge: true });
   }
 
+  function syncPublicProfileSafely(uid, profile) {
+    return syncPublicProfile(uid, profile).catch(err => {
+      console.error('publicProfileSync:', err);
+      return null;
+    });
+  }
+
   function sanitizeHtml(html) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
@@ -326,7 +333,7 @@
         : Promise.resolve();
 
       return privateWrite
-        .then(() => syncPublicProfile(user.uid, profile))
+        .then(() => syncPublicProfileSafely(user.uid, profile))
         .then(() => profile);
     });
   }
@@ -618,10 +625,9 @@
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           };
 
-          return Promise.all([
-            db.collection('profiles').doc(cred.user.uid).set(profile),
-            dbx.publicProfiles.doc(cred.user.uid).set(buildPublicProfileData(profile))
-          ]).catch(fsErr => {
+          return db.collection('profiles').doc(cred.user.uid).set(profile).then(() => {
+            return syncPublicProfileSafely(cred.user.uid, profile);
+          }).catch(fsErr => {
             cred.user.delete().catch(() => {});
             throw new Error('Firestore is blocked by your browser/extension. Disable ad blockers or tracking protection for this site, or use Chrome.');
           });
@@ -1978,7 +1984,7 @@
           currentUserProfile = { ...(currentUserProfile || {}), ...profileUpdate };
           currentUserRole = resolveUserRole(currentUserProfile, currentUser);
           updateAuthNav();
-          return syncPublicProfile(currentUser.uid, currentUserProfile);
+          return syncPublicProfileSafely(currentUser.uid, currentUserProfile);
         }).then(() => {
           toast('Profile updated!', 'success');
           btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
